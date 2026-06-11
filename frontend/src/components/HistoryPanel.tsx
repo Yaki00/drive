@@ -14,6 +14,8 @@ import {
   Typography,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
+import { useEffect, useState } from 'react';
+import { useLocale } from '../context/LocaleContext';
 import { getGreenPale } from '../theme';
 import type { HistoryEntry } from '../utils/history';
 
@@ -23,19 +25,26 @@ interface HistoryPanelProps {
   onOpen: (entry: HistoryEntry) => void;
 }
 
-function formatRelative(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "À l'instant";
-  if (mins < 60) return `Il y a ${mins} min`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `Il y a ${hours}h`;
-  return new Date(dateStr).toLocaleDateString('fr-FR');
-}
-
 export function HistoryPanel({ history, onClear, onOpen }: HistoryPanelProps) {
   const theme = useTheme();
   const greenPale = getGreenPale(theme.palette.mode);
+  const { t, dateLocale } = useLocale();
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const formatRelative = (dateStr: string): string => {
+    const diff = now - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return t('history.justNow');
+    if (mins < 60) return t('history.minutesAgo', { count: mins });
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return t('history.hoursAgo', { count: hours });
+    return new Date(dateStr).toLocaleDateString(dateLocale);
+  };
 
   if (history.length === 0) return null;
 
@@ -65,12 +74,12 @@ export function HistoryPanel({ history, onClear, onOpen }: HistoryPanelProps) {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <HistoryIcon sx={{ color: 'primary.main', fontSize: 20 }} />
           <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-            Historique
+            {t('history.title')}
           </Typography>
           <Chip label={history.length} size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
         </Box>
         <Button size="small" onClick={onClear}>
-          Effacer
+          {t('history.clear')}
         </Button>
       </Box>
 
@@ -80,7 +89,7 @@ export function HistoryPanel({ history, onClear, onOpen }: HistoryPanelProps) {
             key={`${entry.linkId}-${entry.openedAt}`}
             disablePadding
             secondaryAction={
-              <Tooltip title="Ouvrir">
+              <Tooltip title={t('history.open')}>
                 <IconButton
                   size="small"
                   component="a"

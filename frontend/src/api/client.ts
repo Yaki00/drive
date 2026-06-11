@@ -23,15 +23,20 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     throw new Error(
       Array.isArray(error.message)
         ? error.message.join(', ')
-        : error.message ?? 'Une erreur est survenue',
+        : error.message ?? 'Something went wrong',
     );
   }
 
-  if (response.status === 204) {
+  if (response.status === 204 || response.status === 205) {
     return undefined as T;
   }
 
-  return response.json();
+  const text = await response.text();
+  if (!text.trim()) {
+    return undefined as T;
+  }
+
+  return JSON.parse(text) as T;
 }
 
 export const api = {

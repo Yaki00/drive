@@ -10,6 +10,7 @@ import {
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { useEffect, useState } from 'react';
+import { useLocale } from '../context/LocaleContext';
 import type { Card, CreateCardPayload } from '../types';
 import { TagsInput } from './TagsInput';
 
@@ -41,6 +42,7 @@ const emptyForm: CreateCardPayload = {
 
 export function CardDialog({ open, card, onClose, onSave, tagSuggestions = [] }: CardDialogProps) {
   const theme = useTheme();
+  const { t } = useLocale();
   const [form, setForm] = useState<CreateCardPayload>(emptyForm);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -63,7 +65,7 @@ export function CardDialog({ open, card, onClose, onSave, tagSuggestions = [] }:
 
   const handleSubmit = async () => {
     if (!form.title.trim()) {
-      setError('Le titre est obligatoire.');
+      setError(t('cardDialog.titleRequired'));
       return;
     }
 
@@ -79,7 +81,7 @@ export function CardDialog({ open, card, onClose, onSave, tagSuggestions = [] }:
       });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur inconnue');
+      setError(err instanceof Error ? err.message : t('linkDialog.unknownError'));
     } finally {
       setLoading(false);
     }
@@ -87,17 +89,17 @@ export function CardDialog({ open, card, onClose, onSave, tagSuggestions = [] }:
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>{card ? 'Modifier la carte' : 'Nouvelle carte'}</DialogTitle>
+      <DialogTitle>{card ? t('cardDialog.edit') : t('cardDialog.new')}</DialogTitle>
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
         <TextField
-          label="Titre"
+          label={t('cardDialog.title')}
           value={form.title}
           onChange={(e) => setForm({ ...form, title: e.target.value })}
           autoFocus
           fullWidth
         />
         <TextField
-          label="Description (optionnel)"
+          label={t('cardDialog.description')}
           value={form.description}
           onChange={(e) => setForm({ ...form, description: e.target.value })}
           multiline
@@ -111,7 +113,7 @@ export function CardDialog({ open, card, onClose, onSave, tagSuggestions = [] }:
         />
         <Box>
           <Box sx={{ mb: 1, fontSize: '0.875rem', color: 'text.secondary' }}>
-            Couleur
+            {t('cardDialog.color')}
           </Box>
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
             {COLORS.map((color) => (
@@ -135,9 +137,9 @@ export function CardDialog({ open, card, onClose, onSave, tagSuggestions = [] }:
         {error && <Typography variant="body2" color="error">{error}</Typography>}
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Annuler</Button>
+        <Button onClick={onClose}>{t('cardDialog.cancel')}</Button>
         <Button variant="contained" onClick={handleSubmit} disabled={loading}>
-          {card ? 'Enregistrer' : 'Créer'}
+          {card ? t('cardDialog.save') : t('cardDialog.create')}
         </Button>
       </DialogActions>
     </Dialog>

@@ -8,6 +8,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import { useLocale } from '../context/LocaleContext';
 
 interface SearchBarProps {
   value: string;
@@ -16,6 +17,8 @@ interface SearchBarProps {
 }
 
 export function SearchBar({ value, onChange, resultCount }: SearchBarProps) {
+  const { t } = useLocale();
+
   return (
     <Paper
       elevation={0}
@@ -31,7 +34,7 @@ export function SearchBar({ value, onChange, resultCount }: SearchBarProps) {
         fullWidth
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="Rechercher une carte, un lien ou une URL…"
+        placeholder={t('search.placeholder')}
         size="small"
         slotProps={{
           input: {
@@ -58,18 +61,11 @@ export function SearchBar({ value, onChange, resultCount }: SearchBarProps) {
       />
       {value.trim() && resultCount !== undefined && (
         <Box sx={{ mt: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Box
-            sx={{
-              width: 4,
-              height: 16,
-              bgcolor: 'primary.main',
-              borderRadius: 0.5,
-            }}
-          />
+          <Box sx={{ width: 4, height: 16, bgcolor: 'primary.main', borderRadius: 0.5 }} />
           <Typography variant="caption" color="text.secondary">
             {resultCount === 0
-              ? 'Aucun résultat trouvé'
-              : `${resultCount} résultat${resultCount > 1 ? 's' : ''}`}
+              ? t('search.noResults')
+              : t(resultCount === 1 ? 'search.result' : 'search.results', { count: resultCount })}
           </Typography>
         </Box>
       )}

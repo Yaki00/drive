@@ -13,11 +13,11 @@ import DeleteOutlined from '@mui/icons-material/DeleteOutlined';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import DriveFileMoveIcon from '@mui/icons-material/DriveFileMove';
 import EditIcon from '@mui/icons-material/Edit';
+import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import LinkIcon from '@mui/icons-material/Link';
-import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 import { useTheme } from '@mui/material/styles';
@@ -26,19 +26,21 @@ import {
   Button,
   Card,
   CardContent,
+  Checkbox,
   Chip,
   Collapse,
   IconButton,
   List,
-  ListItem,
   ListItemButton,
   Menu,
   MenuItem,
   Tooltip,
   Typography,
 } from '@mui/material';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type MouseEvent } from 'react';
+import { useLocale } from '../context/LocaleContext';
 import { BNP_GREEN, getGreenPale } from '../theme';
+import type { TranslationKey } from '../i18n/translations';
 import type { Card as CardType, Folder, Link } from '../types';
 
 interface LinkCardProps {
@@ -59,6 +61,12 @@ interface LinkCardProps {
   canMoveLeft?: boolean;
   canMoveRight?: boolean;
   onMoveCard?: (direction: 'left' | 'right') => void;
+  selectionMode?: boolean;
+  selectedLinkIds?: Set<number>;
+  selectedFolderIds?: Set<number>;
+  onToggleLinkSelection?: (linkId: number) => void;
+  onToggleFolderSelection?: (folderId: number) => void;
+  onExportLink?: (link: Link) => void;
 }
 
 type CardItem =
@@ -90,14 +98,18 @@ function TagChips({ tags }: { tags: string[] }) {
   );
 }
 
-function formatLinkMeta(link: Link): string {
+function formatLinkMeta(
+  link: Link,
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string,
+  dateLocale: string,
+): string {
   const parts = [link.description, link.url].filter(Boolean) as string[];
-  if (link.createdBy) parts.push(`Ajouté par ${link.createdBy}`);
+  if (link.createdBy) parts.push(t('link.addedBy', { author: link.createdBy }));
   if (link.createdAt) {
-    parts.push(`Le ${new Date(link.createdAt).toLocaleDateString('fr-FR')}`);
+    parts.push(t('link.addedOn', { date: new Date(link.createdAt).toLocaleDateString(dateLocale) }));
   }
   if (link.isDead && link.lastCheckedAt) {
-    parts.push(`Vérifié le ${new Date(link.lastCheckedAt).toLocaleString('fr-FR')}`);
+    parts.push(t('link.checkedOn', { date: new Date(link.lastCheckedAt).toLocaleString(dateLocale) }));
   }
   return parts.join(' · ');
 }
@@ -108,6 +120,7 @@ function RowActions({
   onFavorite,
   onMove,
   onMarkAlive,
+  onExport,
   isFavorite,
   isDead,
   compact,
@@ -117,56 +130,66 @@ function RowActions({
   onFavorite?: () => void;
   onMove?: (anchor: HTMLElement) => void;
   onMarkAlive?: () => void;
+  onExport?: () => void;
   isFavorite?: boolean;
   isDead?: boolean;
   compact?: boolean;
 }) {
+  const { t } = useLocale();
+
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0, gap: 0.25 }}>
       {onMove && (
-        <Tooltip title="Déplacer vers…">
+        <Tooltip title={t('link.moveTo')}>
           <IconButton
             size="small"
-            sx={{ p: 0.25, color: 'text.secondary' }}
+            sx={{ p: 0.5, color: 'text.secondary' }}
             onClick={(e) => {
               e.stopPropagation();
               onMove(e.currentTarget);
             }}
           >
-            <DriveFileMoveIcon sx={{ fontSize: compact ? 13 : 14 }} />
+            <DriveFileMoveIcon sx={{ fontSize: compact ? 15 : 16 }} />
           </IconButton>
         </Tooltip>
       )}
       {isDead && onMarkAlive && (
-        <Tooltip title="Marquer comme vivant">
-          <IconButton size="small" sx={{ p: 0.25, color: 'success.main' }} onClick={onMarkAlive}>
-            <CheckCircleOutlinedIcon sx={{ fontSize: compact ? 13 : 14 }} />
+        <Tooltip title={t('link.markAlive')}>
+          <IconButton size="small" sx={{ p: 0.5, color: 'success.main' }} onClick={onMarkAlive}>
+            <CheckCircleOutlinedIcon sx={{ fontSize: compact ? 15 : 16 }} />
           </IconButton>
         </Tooltip>
       )}
       {onFavorite && (
-        <Tooltip title={isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}>
-          <IconButton size="small" sx={{ p: 0.25 }} onClick={onFavorite}>
+        <Tooltip title={isFavorite ? t('link.removeFavorite') : t('link.addFavorite')}>
+          <IconButton size="small" sx={{ p: 0.5 }} onClick={onFavorite}>
             {isFavorite ? (
-              <StarIcon sx={{ fontSize: compact ? 13 : 14, color: '#F9A825' }} />
+              <StarIcon sx={{ fontSize: compact ? 15 : 16, color: '#F9A825' }} />
             ) : (
-              <StarBorderIcon sx={{ fontSize: compact ? 13 : 14, color: 'text.secondary' }} />
+              <StarBorderIcon sx={{ fontSize: compact ? 15 : 16, color: 'text.secondary' }} />
             )}
           </IconButton>
         </Tooltip>
       )}
-      <Tooltip title="Modifier">
-        <IconButton size="small" sx={{ p: 0.25, color: 'text.secondary' }} onClick={onEdit}>
-          <EditIcon sx={{ fontSize: compact ? 13 : 14 }} />
+      {onExport && (
+        <Tooltip title={t('link.export')}>
+          <IconButton size="small" sx={{ p: 0.5, color: 'text.secondary' }} onClick={onExport}>
+            <FileDownloadOutlinedIcon sx={{ fontSize: compact ? 15 : 16 }} />
+          </IconButton>
+        </Tooltip>
+      )}
+      <Tooltip title={t('card.edit')}>
+        <IconButton size="small" sx={{ p: 0.5, color: 'text.secondary' }} onClick={onEdit}>
+          <EditIcon sx={{ fontSize: compact ? 15 : 16 }} />
         </IconButton>
       </Tooltip>
-      <Tooltip title="Supprimer">
+      <Tooltip title={t('card.delete')}>
         <IconButton
           size="small"
-          sx={{ p: 0.25, color: 'text.secondary', '&:hover': { color: 'error.main' } }}
+          sx={{ p: 0.5, color: 'text.secondary', '&:hover': { color: 'error.main' } }}
           onClick={onDelete}
         >
-          <DeleteOutlined sx={{ fontSize: compact ? 13 : 14 }} />
+          <DeleteOutlined sx={{ fontSize: compact ? 15 : 16 }} />
         </IconButton>
       </Tooltip>
     </Box>
@@ -184,6 +207,10 @@ function SortableLinkRow({
   onMove,
   onMarkAlive,
   onLinkOpen,
+  selectionMode,
+  selected,
+  onToggleSelection,
+  onExport,
 }: {
   link: Link;
   accentColor: string;
@@ -195,69 +222,92 @@ function SortableLinkRow({
   onMove: (anchor: HTMLElement) => void;
   onMarkAlive?: () => void;
   onLinkOpen: () => void;
+  selectionMode?: boolean;
+  selected?: boolean;
+  onToggleSelection?: () => void;
+  onExport?: () => void;
 }) {
+  const { t, dateLocale } = useLocale();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: `link-${link.id}`,
     data: { type: 'link', link },
+    disabled: selectionMode,
   });
 
-  const tooltipText = formatLinkMeta(link);
+  const tooltipText = formatLinkMeta(link, t, dateLocale);
 
   return (
-    <ListItem
+    <Box
       ref={setNodeRef}
-      disablePadding
       sx={{
-        minHeight: compact ? 26 : 30,
+        display: 'flex',
+        alignItems: 'center',
+        minHeight: compact ? 32 : 36,
         opacity: isDragging ? 0.4 : 1,
         transform: CSS.Transform.toString(transform),
         transition,
+        borderRadius: 0.5,
+        backgroundColor: link.isDead ? (theme) => `${theme.palette.error.main}18` : undefined,
+        '&:hover': { bgcolor: link.isDead ? (theme) => `${theme.palette.error.main}28` : greenPale },
       }}
-      secondaryAction={
-        <RowActions
-          compact={compact}
-          onEdit={onEdit}
-          onDelete={onDelete}
-          onFavorite={onFavorite}
-          onMove={onMove}
-          onMarkAlive={onMarkAlive}
-          isFavorite={link.isFavorite}
-          isDead={link.isDead}
-        />
-      }
     >
-      <ListItemButton
-        component="a"
-        href={link.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        onClick={onLinkOpen}
+      <Box
+        component={selectionMode ? 'div' : 'a'}
+        href={selectionMode ? undefined : link.url}
+        target={selectionMode ? undefined : '_blank'}
+        rel={selectionMode ? undefined : 'noopener noreferrer'}
+        onClick={
+          selectionMode
+            ? (e: MouseEvent) => {
+                e.preventDefault();
+                onToggleSelection?.();
+              }
+            : onLinkOpen
+        }
         sx={{
-          py: 0.25,
-          px: 0.5,
-          minHeight: compact ? 26 : 30,
-          borderRadius: 0.5,
-          pr: 9,
+          flex: 1,
+          minWidth: 0,
+          display: 'flex',
+          alignItems: 'center',
           gap: 0.5,
-          backgroundColor: link.isDead ? (t) => `${t.palette.error.main}18` : undefined,
-          '&:hover': { bgcolor: link.isDead ? (t) => `${t.palette.error.main}28` : greenPale },
+          py: 0.25,
+          pl: 0.5,
+          pr: 0.5,
+          textDecoration: 'none',
+          color: 'inherit',
+          cursor: selectionMode ? 'pointer' : undefined,
         }}
       >
-        <IconButton
-          size="small"
-          sx={{ p: 0, cursor: 'grab', color: 'text.disabled' }}
-          {...attributes}
-          {...listeners}
-          onClick={(e) => e.preventDefault()}
-        >
-          <DragIndicatorIcon sx={{ fontSize: 14 }} />
-        </IconButton>
+        {selectionMode ? (
+          <Checkbox
+            size="small"
+            checked={selected}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onToggleSelection?.();
+            }}
+            sx={{ p: 0, flexShrink: 0 }}
+          />
+        ) : (
+          <IconButton
+            size="small"
+            component="span"
+            sx={{ p: 0, cursor: 'grab', color: 'text.disabled', flexShrink: 0 }}
+            {...attributes}
+            {...listeners}
+            onClick={(e) => e.preventDefault()}
+          >
+            <DragIndicatorIcon sx={{ fontSize: 14 }} />
+          </IconButton>
+        )}
         <LinkIcon sx={{ fontSize: 13, color: link.isDead ? 'error.main' : accentColor, flexShrink: 0 }} />
         <Typography
           variant="body2"
           noWrap
           sx={{
-            flexGrow: 1,
+            flex: 1,
+            minWidth: 0,
             fontSize: compact ? '0.78rem' : '0.84rem',
             lineHeight: 1.2,
             color: link.isDead ? 'error.main' : 'text.primary',
@@ -266,16 +316,35 @@ function SortableLinkRow({
         >
           {link.title}
         </Typography>
-        <TagChips tags={link.tags ?? []} />
         {link.isDead && (
-          <Tooltip title="Lien mort ou inaccessible">
-            <Chip label="mort" size="small" color="error" sx={{ height: 16, fontSize: '0.6rem' }} />
+          <Tooltip title={t('link.deadTooltip')}>
+            <Chip
+              label={t('link.dead')}
+              size="small"
+              color="error"
+              sx={{ height: 16, fontSize: '0.6rem', flexShrink: 0, display: { xs: 'none', sm: 'flex' } }}
+            />
           </Tooltip>
         )}
+        <TagChips tags={link.tags ?? []} />
         {tooltipText && <InfoTooltip text={tooltipText} />}
-        <OpenInNewIcon sx={{ fontSize: 11, opacity: 0.35, flexShrink: 0 }} />
-      </ListItemButton>
-    </ListItem>
+      </Box>
+      {!selectionMode && (
+        <Box sx={{ flexShrink: 0, pr: 0.25 }}>
+          <RowActions
+            compact={compact}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            onFavorite={onFavorite}
+            onMove={onMove}
+            onMarkAlive={onMarkAlive}
+            onExport={onExport}
+            isFavorite={link.isFavorite}
+            isDead={link.isDead}
+          />
+        </Box>
+      )}
+    </Box>
   );
 }
 
@@ -289,6 +358,9 @@ function SortableFolderRow({
   onEdit,
   onDelete,
   onAddLink,
+  selectionMode,
+  selected,
+  onToggleSelection,
   children,
 }: {
   folder: Folder;
@@ -300,11 +372,16 @@ function SortableFolderRow({
   onEdit: () => void;
   onDelete: () => void;
   onAddLink: () => void;
+  selectionMode?: boolean;
+  selected?: boolean;
+  onToggleSelection?: () => void;
   children: React.ReactNode;
 }) {
+  const { t } = useLocale();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: `folder-${folder.id}`,
     data: { type: 'folder', folder },
+    disabled: selectionMode,
   });
 
   const { setNodeRef: dropRef, isOver } = useDroppable({
@@ -314,40 +391,68 @@ function SortableFolderRow({
 
   return (
     <Box ref={setNodeRef} sx={{ opacity: isDragging ? 0.4 : 1, transform: CSS.Transform.toString(transform), transition }}>
-      <ListItem
+      <Box
         ref={dropRef}
-        disablePadding
-        sx={{ minHeight: compact ? 26 : 30, outline: isOver ? `2px dashed ${accentColor}` : 'none', borderRadius: 0.5 }}
-        secondaryAction={
-          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <Tooltip title="Ajouter un lien">
-              <IconButton size="small" sx={{ p: 0.25, color: 'primary.main' }} onClick={onAddLink}>
-                <AddIcon sx={{ fontSize: 14 }} />
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          minHeight: compact ? 32 : 36,
+          outline: isOver ? `2px dashed ${accentColor}` : 'none',
+          borderRadius: 0.5,
+          '&:hover': { bgcolor: greenPale },
+        }}
+      >
+        <ListItemButton
+          onClick={selectionMode ? onToggleSelection : onToggle}
+          sx={{
+            flex: 1,
+            minWidth: 0,
+            py: 0.25,
+            px: 0.5,
+            minHeight: compact ? 32 : 36,
+            borderRadius: 0.5,
+            gap: 0.25,
+          }}
+        >
+          {selectionMode ? (
+            <Checkbox
+              size="small"
+              checked={selected}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleSelection?.();
+              }}
+              sx={{ p: 0, flexShrink: 0 }}
+            />
+          ) : (
+            <IconButton size="small" sx={{ p: 0, cursor: 'grab', color: 'text.disabled', flexShrink: 0 }} {...attributes} {...listeners} onClick={(e) => e.stopPropagation()}>
+              <DragIndicatorIcon sx={{ fontSize: 14 }} />
+            </IconButton>
+          )}
+          {!selectionMode && (
+            <IconButton size="small" sx={{ p: 0, mr: 0.25, flexShrink: 0 }} onClick={(e) => { e.stopPropagation(); onToggle(); }}>
+              {isExpanded ? <ExpandMoreIcon sx={{ fontSize: 18, color: 'text.secondary' }} /> : <ChevronRightIcon sx={{ fontSize: 18, color: 'text.secondary' }} />}
+            </IconButton>
+          )}
+          <FolderOutlinedIcon sx={{ fontSize: 14, color: accentColor, flexShrink: 0 }} />
+          <Typography variant="body2" noWrap sx={{ flex: 1, minWidth: 0, fontSize: compact ? '0.78rem' : '0.84rem', fontWeight: 600, lineHeight: 1.2 }}>
+            {folder.title}
+          </Typography>
+          {folder.description && <InfoTooltip text={folder.description} />}
+          <Chip label={folder.links.length} size="small" sx={{ height: 16, minWidth: 20, fontSize: '0.65rem', bgcolor: greenPale, color: accentColor, flexShrink: 0, '& .MuiChip-label': { px: 0.75 } }} />
+        </ListItemButton>
+        {!selectionMode && (
+          <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0, pr: 0.25, gap: 0.25 }}>
+            <Tooltip title={t('card.addLink')}>
+              <IconButton size="small" sx={{ p: 0.5, color: 'primary.main' }} onClick={onAddLink}>
+                <AddIcon sx={{ fontSize: 15 }} />
               </IconButton>
             </Tooltip>
             <RowActions compact={compact} onEdit={onEdit} onDelete={onDelete} />
           </Box>
-        }
-      >
-        <ListItemButton
-          onClick={onToggle}
-          sx={{ py: 0.25, px: 0.5, minHeight: compact ? 26 : 30, borderRadius: 0.5, pr: 10, gap: 0.25, '&:hover': { bgcolor: greenPale } }}
-        >
-          <IconButton size="small" sx={{ p: 0, cursor: 'grab', color: 'text.disabled' }} {...attributes} {...listeners} onClick={(e) => e.stopPropagation()}>
-            <DragIndicatorIcon sx={{ fontSize: 14 }} />
-          </IconButton>
-          <IconButton size="small" sx={{ p: 0, mr: 0.25 }} onClick={(e) => { e.stopPropagation(); onToggle(); }}>
-            {isExpanded ? <ExpandMoreIcon sx={{ fontSize: 18, color: 'text.secondary' }} /> : <ChevronRightIcon sx={{ fontSize: 18, color: 'text.secondary' }} />}
-          </IconButton>
-          <FolderOutlinedIcon sx={{ fontSize: 14, color: accentColor, flexShrink: 0 }} />
-          <Typography variant="body2" noWrap sx={{ flexGrow: 1, fontSize: compact ? '0.78rem' : '0.84rem', fontWeight: 600, lineHeight: 1.2 }}>
-            {folder.title}
-          </Typography>
-          {folder.description && <InfoTooltip text={folder.description} />}
-          <Chip label={folder.links.length} size="small" sx={{ height: 16, minWidth: 20, fontSize: '0.65rem', bgcolor: greenPale, color: accentColor, '& .MuiChip-label': { px: 0.75 } }} />
-        </ListItemButton>
-      </ListItem>
-      <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+        )}
+      </Box>
+      <Collapse in={isExpanded || selectionMode} timeout="auto" unmountOnExit>
         {children}
       </Collapse>
     </Box>
@@ -372,8 +477,15 @@ export function LinkCard({
   canMoveLeft,
   canMoveRight,
   onMoveCard,
+  selectionMode = false,
+  selectedLinkIds,
+  selectedFolderIds,
+  onToggleLinkSelection,
+  onToggleFolderSelection,
+  onExportLink,
 }: LinkCardProps) {
   const theme = useTheme();
+  const { t } = useLocale();
   const greenPale = getGreenPale(theme.palette.mode);
   const accentColor = card.color || BNP_GREEN;
 
@@ -403,7 +515,7 @@ export function LinkCard({
   const moveTargets = useMemo(() => {
     const targets: { cardId: number; folderId: number | null; label: string; color?: string }[] = [];
 
-    targets.push({ cardId: card.id, folderId: null, label: `${card.title} (racine)`, color: card.color });
+    targets.push({ cardId: card.id, folderId: null, label: `${card.title} ${t('card.root')}`, color: card.color });
     card.folders.forEach((folder) => {
       targets.push({
         cardId: card.id,
@@ -433,7 +545,7 @@ export function LinkCard({
       });
 
     return targets;
-  }, [allCards, card]);
+  }, [allCards, card, t]);
 
   const openMoveMenu = (linkId: number, anchor: HTMLElement) => {
     setMovingLinkId(linkId);
@@ -466,14 +578,14 @@ export function LinkCard({
           <Chip label={totalItems} size="small" sx={{ height: 20, fontSize: '0.7rem', mr: 0.5, bgcolor: greenPale, color: accentColor, fontWeight: 700 }} />
           {onMoveCard && (
             <>
-              <Tooltip title="Déplacer la carte à gauche">
+              <Tooltip title={t('card.moveLeft')}>
                 <span>
                   <IconButton size="small" disabled={!canMoveLeft} onClick={() => onMoveCard('left')} sx={{ p: 0.25 }}>
                     <ChevronLeftIcon sx={{ fontSize: 18 }} />
                   </IconButton>
                 </span>
               </Tooltip>
-              <Tooltip title="Déplacer la carte à droite">
+              <Tooltip title={t('card.moveRight')}>
                 <span>
                   <IconButton size="small" disabled={!canMoveRight} onClick={() => onMoveCard('right')} sx={{ p: 0.25 }}>
                     <ChevronRightIcon sx={{ fontSize: 18 }} />
@@ -482,12 +594,12 @@ export function LinkCard({
               </Tooltip>
             </>
           )}
-          <Tooltip title="Modifier">
+          <Tooltip title={t('card.edit')}>
             <IconButton size="small" sx={{ p: 0.5, color: 'text.secondary' }} onClick={() => onEditCard(card)}>
               <EditIcon sx={{ fontSize: 16 }} />
             </IconButton>
           </Tooltip>
-          <Tooltip title="Supprimer">
+          <Tooltip title={t('card.delete')}>
             <IconButton size="small" sx={{ p: 0.5, color: 'text.secondary', '&:hover': { color: 'error.main' } }} onClick={() => onDeleteCard(card)}>
               <DeleteOutlined sx={{ fontSize: 16 }} />
             </IconButton>
@@ -499,7 +611,7 @@ export function LinkCard({
             <List dense disablePadding sx={{ display: 'flex', flexDirection: 'column', gap: 0.15 }}>
               {rootItems.length === 0 ? (
                 <Typography variant="caption" color="text.secondary" sx={{ py: 1.5, textAlign: 'center', fontStyle: 'italic', display: 'block' }}>
-                  Aucun élément — déposez un lien ici
+                  {t('card.empty')}
                 </Typography>
               ) : (
                 rootItems.map((item) =>
@@ -522,12 +634,15 @@ export function LinkCard({
                       onEdit={() => onEditFolder(item.data)}
                       onDelete={() => onDeleteFolder(item.data)}
                       onAddLink={() => onAddLink(card, item.data.id)}
+                      selectionMode={selectionMode}
+                      selected={selectedFolderIds?.has(item.data.id)}
+                      onToggleSelection={() => onToggleFolderSelection?.(item.data.id)}
                     >
                       <SortableContext items={item.data.links.map((l) => `link-${l.id}`)} strategy={verticalListSortingStrategy}>
                         <List dense disablePadding sx={{ pl: 2.5 }}>
                           {item.data.links.length === 0 ? (
                             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', py: 0.75, pl: 1, fontStyle: 'italic' }}>
-                              Dossier vide
+                              {t('card.folderEmpty')}
                             </Typography>
                           ) : (
                             [...item.data.links]
@@ -545,6 +660,10 @@ export function LinkCard({
                                   onMove={(anchor) => openMoveMenu(link.id, anchor)}
                                   onMarkAlive={onMarkAlive ? () => onMarkAlive(link) : undefined}
                                   onLinkOpen={() => onLinkOpen(link)}
+                                  selectionMode={selectionMode}
+                                  selected={selectedLinkIds?.has(link.id)}
+                                  onToggleSelection={() => onToggleLinkSelection?.(link.id)}
+                                  onExport={onExportLink ? () => onExportLink(link) : undefined}
                                 />
                               ))
                           )}
@@ -564,6 +683,10 @@ export function LinkCard({
                       onMove={(anchor) => openMoveMenu(item.data.id, anchor)}
                       onMarkAlive={onMarkAlive ? () => onMarkAlive(item.data) : undefined}
                       onLinkOpen={() => onLinkOpen(item.data)}
+                      selectionMode={selectionMode}
+                      selected={selectedLinkIds?.has(item.data.id)}
+                      onToggleSelection={() => onToggleLinkSelection?.(item.data.id)}
+                      onExport={onExportLink ? () => onExportLink(item.data) : undefined}
                     />
                   ),
                 )
@@ -580,16 +703,16 @@ export function LinkCard({
           sx={{ minWidth: 0, px: 0.5, py: 0.25, color: 'primary.main', fontSize: '0.8rem', fontWeight: 600, '&:hover': { bgcolor: greenPale } }}
         >
           <AddIcon sx={{ fontSize: 16, mr: 0.25 }} />
-          Ajouter
+          {t('card.add')}
         </Button>
         <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={() => setMenuAnchor(null)}>
           <MenuItem onClick={() => { setMenuAnchor(null); onAddLink(card); }}>
             <LinkIcon sx={{ fontSize: 18, mr: 1.5, color: accentColor }} />
-            Lien
+            {t('card.link')}
           </MenuItem>
           <MenuItem onClick={() => { setMenuAnchor(null); onAddFolder(card); }}>
             <FolderOutlinedIcon sx={{ fontSize: 18, mr: 1.5, color: accentColor }} />
-            Dossier
+            {t('card.folder')}
           </MenuItem>
         </Menu>
         <Menu anchorEl={moveAnchor} open={Boolean(moveAnchor)} onClose={() => { setMoveAnchor(null); setMovingLinkId(null); }}>

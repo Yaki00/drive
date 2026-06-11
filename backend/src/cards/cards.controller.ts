@@ -3,12 +3,14 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   ParseIntPipe,
   Patch,
   Post,
 } from '@nestjs/common';
 import { CardsService } from './cards.service';
+import { BulkImportLinksDto } from './dto/bulk-import-links.dto';
 import { CreateCardDto } from './dto/create-card.dto';
 import { CreateFolderDto } from './dto/create-folder.dto';
 import { CreateLinkDto } from './dto/create-link.dto';
@@ -46,6 +48,7 @@ export class CardsController {
   }
 
   @Delete('folders/:folderId')
+  @HttpCode(204)
   removeFolder(@Param('folderId', ParseIntPipe) folderId: number) {
     return this.cardsService.removeFolder(folderId);
   }
@@ -59,6 +62,7 @@ export class CardsController {
   }
 
   @Delete('links/:linkId')
+  @HttpCode(204)
   removeLink(@Param('linkId', ParseIntPipe) linkId: number) {
     return this.cardsService.removeLink(linkId);
   }
@@ -79,6 +83,7 @@ export class CardsController {
   }
 
   @Delete(':id')
+  @HttpCode(204)
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.cardsService.remove(id);
   }
@@ -97,6 +102,14 @@ export class CardsController {
     @Body() dto: CreateLinkDto,
   ) {
     return this.cardsService.addLink(id, dto);
+  }
+
+  @Post(':id/links/bulk')
+  addLinksBulk(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: BulkImportLinksDto,
+  ) {
+    return this.cardsService.addLinksBulk(id, dto);
   }
 
   @Post(':id/reorder')

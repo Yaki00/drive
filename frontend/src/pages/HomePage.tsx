@@ -1,5 +1,9 @@
 import AddIcon from '@mui/icons-material/Add';
 import BookmarkIcon from '@mui/icons-material/Bookmark';
+import ChecklistIcon from '@mui/icons-material/Checklist';
+import DeleteOutlinedIcon from '@mui/icons-material/DeleteOutlined';
+import FileDownloadIcon from '@mui/icons-material/FileDownload';
+import FileUploadIcon from '@mui/icons-material/FileUpload';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import LinkIcon from '@mui/icons-material/Link';
 import LinkOffIcon from '@mui/icons-material/LinkOff';
@@ -11,7 +15,9 @@ import {
   Chip,
   CircularProgress,
   Container,
+  IconButton,
   Snackbar,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -23,12 +29,15 @@ import { FavoritesPanel } from '../components/FavoritesPanel';
 import { FilterBar } from '../components/FilterBar';
 import { FolderDialog } from '../components/FolderDialog';
 import { HistoryPanel } from '../components/HistoryPanel';
+import { ImportLinksDialog } from '../components/ImportLinksDialog';
 import { LinkCard } from '../components/LinkCard';
 import { LinkDialog } from '../components/LinkDialog';
 import { Navbar } from '../components/Navbar';
 import { SearchBar } from '../components/SearchBar';
 import { BookmarksDndProvider } from '../context/BookmarksDndContext';
+import { useLocale } from '../context/LocaleContext';
 import { useUndo } from '../hooks/useUndo';
+import type { TranslationKey } from '../i18n/translations';
 import type {
   Card,
   CardOrderItem,
@@ -40,7 +49,7 @@ import type {
   ReorderItem,
 } from '../types';
 import { collectAllAuthors } from '../utils/collectAuthors';
-import { getCurrentUser, setCurrentUser } from '../utils/currentUser';
+import { getAuthorLabel, getDisplayUser } from '../utils/sessionUser';
 import { extractFavorites } from '../utils/favorites';
 import { applyFilters, emptyFilters, hasActiveFilters, type FilterState } from '../utils/filters';
 import {
@@ -51,6 +60,7 @@ import {
 } from '../utils/history';
 import { buildReorderPayload } from '../utils/reorder';
 import { collectAllTags, countResults } from '../utils/search';
+import { collectFoldersByIds, collectLinksByIds, exportLinksFile } from '../utils/linkTransfer';
 import { restoreCard, restoreFolder, restoreLink, snapshotReorder } from '../utils/undoRestore';
 
 type SnackbarState = { message: string; severity: 'success' | 'error' | 'info' };
@@ -91,13 +101,19 @@ function sortCards(cards: Card[]): Card[] {
 }
 
 export function HomePage() {
+  const { t } = useLocale();
+  const displayUser = getDisplayUser();
   const [cards, setCards] = useState<Card[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState<FilterState>(emptyFilters);
   const [history, setHistory] = useState<HistoryEntry[]>(loadHistory);
-  const [currentUser, setCurrentUserState] = useState(getCurrentUser);
+  const countLabel = useCallback(
+    (count: number, one: TranslationKey, many: TranslationKey) =>
+      t(count === 1 ? one : many, { count }),
+    [t],
+  );
 
   const [cardDialogOpen, setCardDialogOpen] = useState(false);
   const [editingCard, setEditingCard] = useState<Card | null>(null);
@@ -113,6 +129,10 @@ export function HomePage() {
   const [snackbar, setSnackbar] = useState<SnackbarState | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [checkingLinks, setCheckingLinks] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedLinkIds, setSelectedLinkIds] = useState<Set<number>>(() => new Set());
+  const [selectedFolderIds, setSelectedFolderIds] = useState<Set<number>>(() => new Set());
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
 
   const {
     push,
@@ -144,9 +164,9 @@ export function HomePage() {
   const withAuthor = useCallback(
     <T extends object>(data: T): T & { createdBy: string } => ({
       ...data,
-      createdBy: currentUser,
+      createdBy: getAuthorLabel(displayUser),
     }),
-    [currentUser],
+    [displayUser],
   );
 
   const loadCards = useCallback(async () => {
@@ -155,19 +175,15 @@ export function HomePage() {
       setCards(data.map(normalizeCard));
       setError('');
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Impossible de charger les cartes';
-      setError(
-        message === 'Failed to fetch'
-          ? 'Impossible de joindre le serveur. Vérifiez que le backend tourne sur le port 3001.'
-          : message,
-      );
+      const message = err instanceof Error ? err.message : t('error.loadCards');
+      setError(message === 'Failed to fetch' ? t('error.server') : message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
-    loadCards();
+    void loadCards();
   }, [loadCards]);
 
   const runAction = useCallback(
@@ -177,11 +193,11 @@ export function HomePage() {
         if (successMsg) notify(successMsg);
         return true;
       } catch (err) {
-        notify(err instanceof Error ? err.message : 'Une erreur est survenue', 'error');
+        notify(err instanceof Error ? err.message : t('error.generic'), 'error');
         return false;
       }
     },
-    [notify],
+    [notify, t],
   );
 
   const handleUndo = useCallback(async () => {
@@ -191,10 +207,10 @@ export function HomePage() {
       return;
     }
     if (result.label) {
-      notify(`Retour : ${result.label}`, 'info');
+      notify(t('snackbar.undo', { label: result.label }), 'info');
       await loadCards();
     }
-  }, [undo, notify, loadCards]);
+  }, [undo, notify, loadCards, t]);
 
   const handleRedo = useCallback(async () => {
     const result = await redo();
@@ -203,10 +219,10 @@ export function HomePage() {
       return;
     }
     if (result.label) {
-      notify(`Suivant : ${result.label}`, 'info');
+      notify(t('snackbar.redo', { label: result.label }), 'info');
       await loadCards();
     }
-  }, [redo, notify, loadCards]);
+  }, [redo, notify, loadCards, t]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -234,19 +250,19 @@ export function HomePage() {
         };
         await api.updateCard(editingCard.id, data);
         push({
-          label: 'Modification carte',
+          label: t('undo.cardEdit'),
           undo: async () => { await api.updateCard(editingCard.id, before); },
           redo: async () => { await api.updateCard(editingCard.id, data); },
         });
-        notify('Carte mise à jour');
+        notify(t('snackbar.cardUpdated'));
       } else {
         const created = await api.createCard(withAuthor(data));
         push({
-          label: 'Création carte',
+          label: t('undo.cardCreate'),
           undo: async () => { await api.deleteCard(created.id); },
           redo: async () => { await api.createCard(withAuthor(data)); },
         });
-        notify('Carte créée');
+        notify(t('snackbar.cardCreated'));
       }
       await loadCards();
     });
@@ -254,20 +270,20 @@ export function HomePage() {
 
   const handleDeleteCard = (card: Card) => {
     setConfirm({
-      title: 'Supprimer la carte',
-      message: `Supprimer la carte « ${card.title} » et tous ses liens ?`,
-      confirmLabel: 'Supprimer',
+      title: t('confirm.deleteCardTitle'),
+      message: t('confirm.deleteCardMessage', { title: card.title }),
+      confirmLabel: t('confirm.delete'),
       onConfirm: () => {
         setConfirm(null);
         void runAction(async () => {
           const snapshot = JSON.parse(JSON.stringify(card)) as Card;
           await api.deleteCard(card.id);
           push({
-            label: 'Suppression carte',
+            label: t('undo.cardDelete'),
             undo: async () => restoreCard(snapshot),
             redo: async () => { await api.deleteCard(card.id); },
           });
-          notify('Carte supprimée');
+          notify(t('snackbar.cardDeleted'));
           await loadCards();
         });
       },
@@ -297,11 +313,11 @@ export function HomePage() {
         };
         await api.updateLink(editingLink.id, updatePayload);
         push({
-          label: 'Modification lien',
+          label: t('undo.linkEdit'),
           undo: async () => { await api.updateLink(editingLink.id, before); },
           redo: async () => { await api.updateLink(editingLink.id, updatePayload); },
         });
-        notify('Lien mis à jour');
+        notify(t('snackbar.linkUpdated'));
       } else if (activeCardId) {
         const created = (await api.addLink(activeCardId, withAuthor({
           ...data,
@@ -310,13 +326,13 @@ export function HomePage() {
         const cardId = activeCardId;
         const folderId = activeFolderId;
         push({
-          label: 'Ajout lien',
+          label: t('undo.linkAdd'),
           undo: async () => { await api.deleteLink(created.id); },
           redo: async () => {
             await api.addLink(cardId, withAuthor({ ...data, folderId: folderId ?? undefined }));
           },
         });
-        notify('Lien ajouté');
+        notify(t('snackbar.linkAdded'));
       }
       setActiveFolderId(null);
       await loadCards();
@@ -325,20 +341,20 @@ export function HomePage() {
 
   const handleDeleteLink = (link: Link) => {
     setConfirm({
-      title: 'Supprimer le lien',
-      message: `Supprimer le lien « ${link.title} » ?`,
-      confirmLabel: 'Supprimer',
+      title: t('confirm.deleteLinkTitle'),
+      message: t('confirm.deleteLinkMessage', { title: link.title }),
+      confirmLabel: t('confirm.delete'),
       onConfirm: () => {
         setConfirm(null);
         void runAction(async () => {
           const snapshot = { ...link };
           await api.deleteLink(link.id);
           push({
-            label: 'Suppression lien',
+            label: t('undo.linkDelete'),
             undo: async () => restoreLink(snapshot),
             redo: async () => { await api.deleteLink(link.id); },
           });
-          notify('Lien supprimé');
+          notify(t('snackbar.linkDeleted'));
           await loadCards();
         });
       },
@@ -354,20 +370,20 @@ export function HomePage() {
         };
         await api.updateFolder(editingFolder.id, data);
         push({
-          label: 'Modification dossier',
+          label: t('undo.folderEdit'),
           undo: async () => { await api.updateFolder(editingFolder.id, before); },
           redo: async () => { await api.updateFolder(editingFolder.id, data); },
         });
-        notify('Dossier mis à jour');
+        notify(t('snackbar.folderUpdated'));
       } else if (activeCardId) {
         const created = await api.addFolder(activeCardId, withAuthor(data));
         const cardId = activeCardId;
         push({
-          label: 'Création dossier',
+          label: t('undo.folderCreate'),
           undo: async () => { await api.deleteFolder(created.id); },
           redo: async () => { await api.addFolder(cardId, withAuthor(data)); },
         });
-        notify('Dossier créé');
+        notify(t('snackbar.folderCreated'));
       }
       await loadCards();
     });
@@ -375,20 +391,20 @@ export function HomePage() {
 
   const handleDeleteFolder = (folder: Folder) => {
     setConfirm({
-      title: 'Supprimer le dossier',
-      message: `Supprimer le dossier « ${folder.title} » et tous ses liens ?`,
-      confirmLabel: 'Supprimer',
+      title: t('confirm.deleteFolderTitle'),
+      message: t('confirm.deleteFolderMessage', { title: folder.title }),
+      confirmLabel: t('confirm.delete'),
       onConfirm: () => {
         setConfirm(null);
         void runAction(async () => {
           const snapshot = { title: folder.title, description: folder.description, links: [...folder.links] };
           await api.deleteFolder(folder.id);
           push({
-            label: 'Suppression dossier',
+            label: t('undo.folderDelete'),
             undo: async () => restoreFolder(folder.cardId, snapshot),
             redo: async () => { await api.deleteFolder(folder.id); },
           });
-          notify('Dossier supprimé');
+          notify(t('snackbar.folderDeleted'));
           await loadCards();
         });
       },
@@ -400,11 +416,11 @@ export function HomePage() {
     await runAction(async () => {
       await api.updateLink(link.id, { isFavorite: !wasFavorite });
       push({
-        label: wasFavorite ? 'Retrait favori' : 'Ajout favori',
+        label: wasFavorite ? t('undo.favoriteRemove') : t('undo.favoriteAdd'),
         undo: async () => { await api.updateLink(link.id, { isFavorite: wasFavorite }); },
         redo: async () => { await api.updateLink(link.id, { isFavorite: !wasFavorite }); },
       });
-      notify(wasFavorite ? 'Retiré des favoris' : 'Ajouté aux favoris');
+      notify(wasFavorite ? t('snackbar.favoriteRemoved') : t('snackbar.favoriteAdded'));
       await loadCards();
     });
   };
@@ -413,11 +429,11 @@ export function HomePage() {
     await runAction(async () => {
       await api.updateLink(link.id, { isDead: false });
       push({
-        label: 'Lien marqué vivant',
+        label: t('undo.linkAlive'),
         undo: async () => { await api.updateLink(link.id, { isDead: true }); },
         redo: async () => { await api.updateLink(link.id, { isDead: false }); },
       });
-      notify('Lien marqué comme vivant');
+      notify(t('snackbar.linkAlive'));
       await loadCards();
     });
   };
@@ -431,7 +447,7 @@ export function HomePage() {
       const after = snapshotReorder(items);
       await api.reorderCard(cardId, items);
       push({
-        label: 'Réorganisation',
+        label: t('undo.reorder'),
         undo: async () => { await api.reorderCard(cardId, before); },
         redo: async () => { await api.reorderCard(cardId, after); },
       });
@@ -459,7 +475,7 @@ export function HomePage() {
     await runAction(async () => {
       await api.moveLink(linkId, targetCardId, targetFolderId);
       push({
-        label: 'Déplacement lien',
+        label: t('undo.moveLink'),
         undo: async () => {
           await api.updateLink(linkId, {
             cardId: before.cardId,
@@ -468,7 +484,7 @@ export function HomePage() {
         },
         redo: async () => { await api.moveLink(linkId, targetCardId, targetFolderId); },
       });
-      notify('Lien déplacé');
+      notify(t('snackbar.linkMoved'));
       await loadCards();
     });
   };
@@ -487,7 +503,7 @@ export function HomePage() {
     await runAction(async () => {
       await api.reorderCards(after);
       push({
-        label: 'Réorganisation cartes',
+        label: t('undo.reorderCards'),
         undo: async () => { await api.reorderCards(before); },
         redo: async () => { await api.reorderCards(after); },
       });
@@ -499,14 +515,16 @@ export function HomePage() {
     setCheckingLinks(true);
     try {
       const result = await api.checkDeadLinks();
-      const skipped = result.skipped ? ` — ${result.skipped} ignoré${result.skipped > 1 ? 's' : ''}` : '';
+      const skipped = result.skipped
+        ? t('snackbar.linksSkippedSuffix', { count: result.skipped })
+        : '';
       notify(
-        `${result.checked} lien${result.checked > 1 ? 's' : ''} vérifié${result.checked > 1 ? 's' : ''} — ${result.dead} mort${result.dead > 1 ? 's' : ''}${skipped}`,
+        t('snackbar.linksChecked', { checked: result.checked, dead: result.dead, skipped }),
         'info',
       );
       await loadCards();
     } catch (err) {
-      notify(err instanceof Error ? err.message : 'Échec de la vérification', 'error');
+      notify(err instanceof Error ? err.message : t('error.checkFailed'), 'error');
     } finally {
       setCheckingLinks(false);
     }
@@ -543,6 +561,163 @@ export function HomePage() {
     setCardDialogOpen(true);
   };
 
+  const toggleLinkSelection = useCallback((linkId: number) => {
+    setSelectedLinkIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(linkId)) next.delete(linkId);
+      else next.add(linkId);
+      return next;
+    });
+  }, []);
+
+  const toggleFolderSelection = useCallback((folderId: number) => {
+    setSelectedFolderIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
+  }, []);
+
+  const selectedCount = selectedLinkIds.size + selectedFolderIds.size;
+
+  const exitSelectionMode = useCallback(() => {
+    setSelectionMode(false);
+    setSelectedLinkIds(new Set());
+    setSelectedFolderIds(new Set());
+  }, []);
+
+  const handleExportLinks = useCallback(
+    (links: Link[]) => {
+      if (links.length === 0) return;
+      exportLinksFile(links, sortedCards);
+      notify(
+        links.length === 1
+          ? t('snackbar.linkExported')
+          : t('snackbar.linksExported', { count: links.length }),
+      );
+    },
+    [notify, sortedCards, t],
+  );
+
+  const handleExportSelected = useCallback(() => {
+    const links = collectLinksByIds(sortedCards, selectedLinkIds);
+    handleExportLinks(links);
+    exitSelectionMode();
+  }, [selectedLinkIds, sortedCards, handleExportLinks, exitSelectionMode]);
+
+  const handleDeleteSelected = useCallback(() => {
+    const folders = collectFoldersByIds(sortedCards, selectedFolderIds);
+    const links = collectLinksByIds(sortedCards, selectedLinkIds);
+    const deletedFolderIds = new Set(folders.map((folder) => folder.id));
+    const linksToDelete = links.filter(
+      (link) => !link.folderId || !deletedFolderIds.has(link.folderId),
+    );
+    const total = folders.length + linksToDelete.length;
+    if (total === 0) return;
+
+    setConfirm({
+      title: t('confirm.deleteSelectedTitle'),
+      message: t('confirm.deleteSelectedMessage', { count: total }),
+      confirmLabel: t('confirm.delete'),
+      onConfirm: () => {
+        setConfirm(null);
+        void runAction(async () => {
+          const folderSnapshots = folders.map((folder) => ({
+            cardId: folder.cardId,
+            snapshot: {
+              title: folder.title,
+              description: folder.description,
+              links: [...folder.links],
+            },
+          }));
+          const linkSnapshots = linksToDelete.map((link) => ({ ...link }));
+
+          for (const folder of folders) {
+            await api.deleteFolder(folder.id);
+          }
+          for (const link of linksToDelete) {
+            await api.deleteLink(link.id);
+          }
+
+          push({
+            label: t('undo.bulkDelete'),
+            undo: async () => {
+              for (const { cardId, snapshot } of folderSnapshots) {
+                await restoreFolder(cardId, snapshot);
+              }
+              for (const link of linkSnapshots) {
+                await restoreLink(link);
+              }
+            },
+            redo: async () => {
+              for (const folder of folders) {
+                await api.deleteFolder(folder.id);
+              }
+              for (const link of linksToDelete) {
+                await api.deleteLink(link.id);
+              }
+            },
+          });
+
+          notify(t('snackbar.itemsDeleted', { count: total }));
+          exitSelectionMode();
+          await loadCards();
+        });
+      },
+    });
+  }, [
+    sortedCards,
+    selectedFolderIds,
+    selectedLinkIds,
+    t,
+    runAction,
+    push,
+    notify,
+    exitSelectionMode,
+    loadCards,
+  ]);
+
+  const handleImportLinks = useCallback(
+    async (payloads: CreateLinkPayload[], cardId: number, folderId: number | null) => {
+      await runAction(async () => {
+        const createdIds: number[] = [];
+        for (const payload of payloads) {
+          const created = (await api.addLink(cardId, withAuthor({
+            ...payload,
+            folderId: folderId ?? undefined,
+          }))) as Link;
+          createdIds.push(created.id);
+        }
+
+        push({
+          label: t('undo.linkImport'),
+          undo: async () => {
+            for (const id of createdIds) {
+              await api.deleteLink(id);
+            }
+          },
+          redo: async () => {
+            for (const payload of payloads) {
+              await api.addLink(cardId, withAuthor({
+                ...payload,
+                folderId: folderId ?? undefined,
+              }));
+            }
+          },
+        });
+
+        notify(
+          payloads.length === 1
+            ? t('snackbar.linkImported')
+            : t('snackbar.linksImported', { count: payloads.length }),
+        );
+        await loadCards();
+      });
+    },
+    [runAction, withAuthor, push, t, notify, loadCards],
+  );
+
   const openAddLink = (card: Card, folderId?: number) => {
     setEditingLink(null);
     setActiveCardId(card.id);
@@ -570,6 +745,15 @@ export function HomePage() {
   };
 
   const isFiltering = searchQuery.trim().length > 0 || hasActiveFilters(filters);
+  const dndDisabled = isFiltering || selectionMode;
+
+  useEffect(() => {
+    if (isFiltering && selectionMode) {
+      setSelectionMode(false);
+      setSelectedLinkIds(new Set());
+      setSelectedFolderIds(new Set());
+    }
+  }, [isFiltering, selectionMode]);
   const displayCards = isFiltering ? filteredCards : sortedCards;
   const hasNoCards = !loading && !error && cards.length === 0;
   const hasNoResults = !loading && !error && cards.length > 0 && displayCards.length === 0;
@@ -586,13 +770,14 @@ export function HomePage() {
         '&:hover': { bgcolor: '#F0F0F0' },
       }}
     >
-      Nouvelle carte
+      {t('nav.newCard')}
     </Button>
   );
 
   return (
     <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <Navbar
+        sessionUser={displayUser}
         actionButton={newCardButton}
         onUndo={handleUndo}
         onRedo={handleRedo}
@@ -639,33 +824,89 @@ export function HomePage() {
                 cards={sortedCards}
                 allTags={tagSuggestions}
                 allAuthors={authorSuggestions}
-                currentUser={currentUser}
-                onCurrentUserChange={(name) => setCurrentUserState(setCurrentUser(name))}
               />
             </>
           )}
 
           {!loading && !error && cards.length > 0 && (
             <Box sx={{ display: 'flex', gap: 1.5, mb: 3, flexWrap: 'wrap', alignItems: 'center' }}>
-              <Chip icon={<FolderOpenIcon />} label={`${stats.cards} carte${stats.cards > 1 ? 's' : ''}`} size="small" sx={{ bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', fontWeight: 600 }} />
-              <Chip icon={<FolderOpenIcon />} label={`${stats.folders} dossier${stats.folders > 1 ? 's' : ''}`} size="small" sx={{ bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', fontWeight: 600 }} />
-              <Chip icon={<LinkIcon />} label={`${stats.links} lien${stats.links > 1 ? 's' : ''}`} size="small" sx={{ bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', fontWeight: 600 }} />
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={checkingLinks ? <CircularProgress size={14} /> : <LinkOffIcon />}
-                onClick={handleCheckDeadLinks}
-                disabled={checkingLinks}
-                sx={{ ml: 'auto' }}
-              >
-                Vérifier les liens morts
-              </Button>
+              <Chip icon={<FolderOpenIcon />} label={countLabel(stats.cards, 'stats.cards', 'stats.cards_plural')} size="small" sx={{ bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', fontWeight: 600 }} />
+              <Chip icon={<FolderOpenIcon />} label={countLabel(stats.folders, 'stats.folders', 'stats.folders_plural')} size="small" sx={{ bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', fontWeight: 600 }} />
+              <Chip icon={<LinkIcon />} label={countLabel(stats.links, 'stats.links', 'stats.links_plural')} size="small" sx={{ bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', fontWeight: 600 }} />
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', ml: 'auto' }}>
+                {selectionMode ? (
+                  <>
+                    <Typography variant="body2" color="text.secondary" sx={{ alignSelf: 'center', px: 0.5 }}>
+                      {t('export.selected', { count: selectedCount })}
+                    </Typography>
+                    <Button
+                      variant="contained"
+                      size="small"
+                      startIcon={<FileDownloadIcon />}
+                      onClick={handleExportSelected}
+                      disabled={selectedLinkIds.size === 0}
+                    >
+                      {t('export.exportSelected')}
+                    </Button>
+                    <Tooltip title={t('export.deleteSelected')}>
+                      <span>
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={handleDeleteSelected}
+                          disabled={selectedCount === 0}
+                          sx={{
+                            border: '1px solid',
+                            borderColor: 'error.main',
+                            borderRadius: 1,
+                            width: 34,
+                            height: 34,
+                          }}
+                        >
+                          <DeleteOutlinedIcon sx={{ fontSize: 18 }} />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                    <Button variant="outlined" size="small" onClick={exitSelectionMode}>
+                      {t('export.cancelSelection')}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<ChecklistIcon />}
+                      onClick={() => setSelectionMode(true)}
+                    >
+                      {t('export.selectItems')}
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<FileUploadIcon />}
+                      onClick={() => setImportDialogOpen(true)}
+                    >
+                      {t('import.button')}
+                    </Button>
+                  </>
+                )}
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={checkingLinks ? <CircularProgress size={14} /> : <LinkOffIcon />}
+                  onClick={handleCheckDeadLinks}
+                  disabled={checkingLinks || selectionMode}
+                >
+                  {t('stats.checkDead')}
+                </Button>
+              </Box>
             </Box>
           )}
 
-          {isFiltering && (
+          {dndDisabled && (
             <Alert severity="info" sx={{ mb: 2, borderRadius: 1 }}>
-              Le glisser-déposer est désactivé pendant le filtrage.
+              {selectionMode ? t('stats.selectionMode') : t('stats.dndDisabled')}
             </Alert>
           )}
 
@@ -681,7 +922,7 @@ export function HomePage() {
               sx={{ mb: 3, borderRadius: 1 }}
               action={
                 <Button color="inherit" size="small" startIcon={<RefreshIcon />} onClick={() => { setLoading(true); void loadCards(); }}>
-                  Réessayer
+                  {t('error.retry')}
                 </Button>
               }
             >
@@ -692,21 +933,21 @@ export function HomePage() {
           {hasNoCards && (
             <Box sx={{ textAlign: 'center', py: 10, px: 3, border: '1px solid', borderColor: 'divider', borderRadius: 1, bgcolor: 'background.paper' }}>
               <BookmarkIcon sx={{ fontSize: 64, color: 'text.disabled', mb: 2 }} />
-              <Typography variant="h6" gutterBottom>Aucune carte pour l'instant</Typography>
+              <Typography variant="h6" gutterBottom>{t('empty.noCards')}</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3, maxWidth: 360, mx: 'auto' }}>
-                Créez votre première carte pour commencer à y ranger vos liens favoris.
+                {t('empty.noCardsHint')}
               </Typography>
               <Button variant="contained" startIcon={<AddIcon />} onClick={openCreateCard}>
-                Créer une carte
+                {t('empty.createCard')}
               </Button>
             </Box>
           )}
 
           {hasNoResults && (
             <Box sx={{ textAlign: 'center', py: 8, px: 3, border: '1px solid', borderColor: 'divider', borderRadius: 1, bgcolor: 'background.paper' }}>
-              <Typography variant="h6" gutterBottom>Aucun résultat</Typography>
+              <Typography variant="h6" gutterBottom>{t('empty.noResults')}</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Aucun élément ne correspond à vos critères.
+                {t('empty.noResultsHint')}
               </Typography>
               <Button
                 variant="outlined"
@@ -715,7 +956,7 @@ export function HomePage() {
                   setFilters(emptyFilters);
                 }}
               >
-                Effacer les filtres
+                {t('empty.clearFilters')}
               </Button>
             </Box>
           )}
@@ -725,7 +966,7 @@ export function HomePage() {
               cards={sortedCards}
               onReorder={handleReorder}
               onMoveLinkToCard={(linkId, targetCardId) => handleMoveLink(linkId, targetCardId, null)}
-              disabled={isFiltering}
+              disabled={dndDisabled}
             >
               <Box
                 sx={{
@@ -753,9 +994,15 @@ export function HomePage() {
                         onMoveLink={handleMoveLink}
                         onMarkAlive={handleMarkAlive}
                         onLinkOpen={(link) => handleLinkOpen(link, card.title, card.color)}
-                        canMoveLeft={!isFiltering && globalIndex > 0}
-                        canMoveRight={!isFiltering && globalIndex >= 0 && globalIndex < sortedCards.length - 1}
-                        onMoveCard={isFiltering ? undefined : (direction) => handleMoveCard(card.id, direction)}
+                        canMoveLeft={!dndDisabled && globalIndex > 0}
+                        canMoveRight={!dndDisabled && globalIndex >= 0 && globalIndex < sortedCards.length - 1}
+                        onMoveCard={dndDisabled ? undefined : (direction) => handleMoveCard(card.id, direction)}
+                        selectionMode={selectionMode}
+                        selectedLinkIds={selectedLinkIds}
+                        selectedFolderIds={selectedFolderIds}
+                        onToggleLinkSelection={toggleLinkSelection}
+                        onToggleFolderSelection={toggleFolderSelection}
+                        onExportLink={(link) => handleExportLinks([link])}
                       />
                     </CardDropZone>
                   );
@@ -770,10 +1017,10 @@ export function HomePage() {
         <Container maxWidth="lg">
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
             <Typography variant="body2" sx={{ opacity: 0.85 }}>
-              Bookmarks — Gestionnaire de liens
+              {t('app.footer')}
             </Typography>
             <Typography variant="caption" sx={{ opacity: 0.6 }}>
-              {stats.cards} carte{stats.cards > 1 ? 's' : ''} · {stats.folders} dossier{stats.folders > 1 ? 's' : ''} · {stats.links} lien{stats.links > 1 ? 's' : ''}
+              {countLabel(stats.cards, 'stats.cards', 'stats.cards_plural')} · {countLabel(stats.folders, 'stats.folders', 'stats.folders_plural')} · {countLabel(stats.links, 'stats.links', 'stats.links_plural')}
             </Typography>
           </Box>
         </Container>
@@ -789,6 +1036,12 @@ export function HomePage() {
         tagSuggestions={tagSuggestions}
       />
       <FolderDialog open={folderDialogOpen} folder={editingFolder} onClose={() => setFolderDialogOpen(false)} onSave={handleSaveFolder} />
+      <ImportLinksDialog
+        open={importDialogOpen}
+        cards={sortedCards}
+        onClose={() => setImportDialogOpen(false)}
+        onImport={handleImportLinks}
+      />
 
       <ConfirmDialog
         open={!!confirm}

@@ -1,57 +1,102 @@
-# Bookmarks
+# APS Tools — Bookmarks
 
-Gestionnaire de liens organisés en cartes, dossiers et tags.
+Link manager organized as cards, folders and tags.
 
-- **Backend** : NestJS + TypeORM + SQLite (`drive.db`, port **3001**)
-- **Frontend** : React + Vite + MUI (port **5173**)
+- **Backend**: NestJS + TypeORM + SQLite (`drive.db`, port **3001**)
+- **Frontend**: React + Vite + MUI (port **5173**)
 
-## Démarrage
+## Quick start
 
 ```bash
 # Terminal 1 — API
-cd backend && npm run start:dev
+cd backend && npm install && npm run start:dev
 
-# Terminal 2 — Interface
-cd frontend && npm run dev
+# Terminal 2 — UI
+cd frontend && npm install && npm run dev
 ```
 
-Ouvrez [http://localhost:5173](http://localhost:5173). En dev, le frontend proxifie `/api` vers le backend (pas de souci CORS si le port Vite change).
+Open [http://localhost:5173](http://localhost:5173).
 
-## Fonctionnalités
+In development, the frontend proxies `/api` to the backend (no CORS issues if Vite uses another port).
 
-- **Cartes** — CRUD, couleur, tags, réordonnancement (flèches sur chaque carte)
-- **Dossiers** — imbriqués dans les cartes, liens par dossier
-- **Liens** — CRUD, tags, favoris, déplacement (carte + dossier), liens morts
-- **Recherche & filtres** — tags, carte, auteur, plage de dates, favoris, liens morts
-- **Utilisateur local** — nom saisi dans les filtres, enregistré comme auteur des créations
-- **Favoris** — panneau dédié
-- **Historique** — liens ouverts (localStorage)
-- **Undo / Redo** — session courante (`Ctrl+Z` / `Ctrl+Shift+Z`)
-- **Drag & drop** — réorganisation intra-carte, déplacement inter-cartes
-- **Mode sombre** — toggle navbar, préférence persistée
-- **Vérification liens morts** — côté serveur (URLs privées/localhost ignorées)
+## Features
 
-## API principale
+- **Cards** — CRUD, color, tags, reorder (← → buttons on each card)
+- **Folders** — nested inside cards
+- **Links** — CRUD, tags, favorites, move (card + folder), dead link detection
+- **Search & filters** — tags, card, author, date range, favorites, dead links
+- **Navbar session** — `Logged in as guest - Guest` (display only; no login yet)
+- **Favorites** — dedicated panel
+- **History** — opened links (localStorage)
+- **Undo / Redo** — current session only (`Ctrl+Z` / `Ctrl+Shift+Z`)
+- **Drag & drop** — reorder inside a card, move links across cards
+- **Dark mode** — navbar toggle, preference persisted
+- **i18n** — English by default, French via navbar toggle
+- **Dead link check** — server-side (private/localhost URLs skipped)
+- **Link import / export** — one or many links as JSON (per-link icon or multi-select)
+- **Browser extension** — Chrome/Edge: add current page or import bookmarks (`extension/`)
 
-| Méthode | Route | Description |
-|---------|-------|-------------|
-| GET | `/cards` | Liste les cartes (triées par `sortOrder`) |
-| POST | `/cards` | Crée une carte |
-| PATCH | `/cards/:id` | Met à jour une carte |
-| DELETE | `/cards/:id` | Supprime une carte |
-| POST | `/cards/reorder` | Réordonne les cartes `{ items: [{ id, sortOrder }] }` |
-| POST | `/cards/:id/folders` | Ajoute un dossier |
-| PATCH | `/cards/folders/:folderId` | Met à jour un dossier |
-| DELETE | `/cards/folders/:folderId` | Supprime un dossier |
-| POST | `/cards/:id/links` | Ajoute un lien |
-| PATCH | `/cards/links/:linkId` | Met à jour / déplace un lien |
-| DELETE | `/cards/links/:linkId` | Supprime un lien |
-| POST | `/cards/:id/reorder` | Réordonne liens/dossiers dans une carte |
-| POST | `/cards/links/check-dead` | Vérifie les liens morts |
+## API
 
-## Variables d'environnement
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/cards` | List all cards |
+| POST | `/cards` | Create a card |
+| PATCH | `/cards/:id` | Update a card |
+| DELETE | `/cards/:id` | Delete a card |
+| POST | `/cards/reorder` | Reorder cards |
+| POST | `/cards/:id/folders` | Add a folder |
+| PATCH | `/cards/folders/:folderId` | Update a folder |
+| DELETE | `/cards/folders/:folderId` | Delete a folder |
+| POST | `/cards/:id/links` | Add a link |
+| POST | `/cards/:id/links/bulk` | Import multiple links |
+| PATCH | `/cards/links/:linkId` | Update / move a link |
+| DELETE | `/cards/links/:linkId` | Delete a link |
+| POST | `/cards/:id/reorder` | Reorder links/folders in a card |
+| POST | `/cards/links/check-dead` | Check dead links |
+
+## Environment variables
 
 | Variable | Description |
 |----------|-------------|
-| `VITE_API_URL` | URL de l'API en build prod (défaut dev : `/api`) |
-| `PORT` | Port backend (défaut `3001`) |
+| `VITE_API_URL` | API URL in production build (dev default: `/api`) |
+| `PORT` | Backend port (default `3001`) |
+
+## Notes
+
+- `drive.db` is not committed — it is created on first backend start.
+- Copy `backend/drive.db` to migrate data to another machine.
+
+## Authentication (not in scope yet)
+
+Authentication is **not implemented** and is intentionally deferred. The `/login` page and navbar label are UI placeholders only (fields disabled, no backend check).
+
+Enterprise SSO / login for the target organization will be added in a later phase. Until then, the API stays open and `createdBy` is filled client-side as `guest`.
+
+## Link import / export
+
+**Export one link** — click the download icon on a link row.
+
+**Export several links** — use **Select links**, check the rows, then **Export**. A `.json` file is downloaded.
+
+**Import** — use **Import**, upload or paste JSON, then choose target card and folder.
+
+Supported JSON shapes:
+
+```json
+{
+  "version": 1,
+  "exportedAt": "2026-06-09T12:00:00.000Z",
+  "links": [
+    {
+      "title": "Example",
+      "url": "https://example.com",
+      "description": "Optional",
+      "tags": ["docs"],
+      "isFavorite": false
+    }
+  ]
+}
+```
+
+A plain array of link objects or a single `{ "title", "url", ... }` object also works.

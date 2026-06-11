@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>APS Tools Bookmarks</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>APS Tools Bookmarks</h1>
+      <p id="api-label">API: …</p>
+    </header>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="add" type="button">Add page</button>
+      <button class="tab" data-tab="import" type="button">Import bookmarks</button>
+    </div>
+
+    <section id="panel-add" class="panel active">
+      <div class="field">
+        <label for="add-title">Title</label>
+        <input id="add-title" type="text" />
+      </div>
+      <div class="field">
+        <label for="add-url">URL</label>
+        <input id="add-url" type="url" />
+      </div>
+      <div class="field">
+        <label for="add-card">Card</label>
+        <select id="add-card"></select>
+      </div>
+      <div class="field">
+        <label for="add-folder">Folder</label>
+        <select id="add-folder">
+          <option value="">Card root</option>
+        </select>
+      </div>
+      <div class="checkbox-row">
+        <input id="add-favorite" type="checkbox" />
+        <label for="add-favorite">Mark as favorite</label>
+      </div>
+      <button id="add-submit" class="primary" type="button">Add to APS Tools</button>
+      <div id="add-status" class="status"></div>
+    </section>
+
+    <section id="panel-import" class="panel">
+      <div class="field">
+        <label for="import-card">Target card</label>
+        <select id="import-card"></select>
+      </div>
+      <div class="field">
+        <label for="import-folder">Target folder</label>
+        <select id="import-folder">
+          <option value="">Card root</option>
+        </select>
+      </div>
+      <div class="toolbar">
+        <button id="import-select-all" class="secondary" type="button">Select all</button>
+        <button id="import-select-none" class="secondary" type="button">Select none</button>
+        <button id="import-reload" class="secondary" type="button">Reload</button>
+      </div>
+      <div id="bookmark-list" class="list">
+        <div class="empty">Loading browser bookmarks…</div>
+      </div>
+      <button id="import-submit" class="primary" type="button" disabled>Import selected</button>
+      <div id="import-status" class="status"></div>
+    </section>
+
+    <footer>
+      <a href="options.html" target="_blank">Settings</a>
+    </footer>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

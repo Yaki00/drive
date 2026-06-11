@@ -33,15 +33,7 @@ export class CreateLinkDto {
   @IsOptional()
   isFavorite?: boolean;
 
-  @IsBoolean()
-  @IsOptional()
-  isDead?: boolean;
-
   @IsString()
   @IsOptional()
   createdBy?: string;
-
-  @IsInt()
-  @IsOptional()
-  cardId?: number;
 }

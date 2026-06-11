@@ -1,5 +1,4 @@
 import FilterListIcon from '@mui/icons-material/FilterList';
-import PersonIcon from '@mui/icons-material/Person';
 import {
   Autocomplete,
   Box,
@@ -13,6 +12,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import { useLocale } from '../context/LocaleContext';
 import type { Card } from '../types';
 import type { FilterState } from '../utils/filters';
 
@@ -22,19 +22,11 @@ interface FilterBarProps {
   cards: Card[];
   allTags: string[];
   allAuthors: string[];
-  currentUser: string;
-  onCurrentUserChange: (name: string) => void;
 }
 
-export function FilterBar({
-  filters,
-  onChange,
-  cards,
-  allTags,
-  allAuthors,
-  currentUser,
-  onCurrentUserChange,
-}: FilterBarProps) {
+export function FilterBar({ filters, onChange, cards, allTags, allAuthors }: FilterBarProps) {
+  const { t } = useLocale();
+
   return (
     <Paper
       elevation={0}
@@ -46,24 +38,11 @@ export function FilterBar({
         borderRadius: 1,
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 2, flexWrap: 'wrap' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <FilterListIcon sx={{ fontSize: 20, color: 'primary.main' }} />
-          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-            Filtres
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 200 }}>
-          <PersonIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
-          <TextField
-            size="small"
-            label="Utilisateur actuel"
-            value={currentUser}
-            onChange={(e) => onCurrentUserChange(e.target.value)}
-            onBlur={(e) => onCurrentUserChange(e.target.value)}
-            sx={{ minWidth: 160 }}
-          />
-        </Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+        <FilterListIcon sx={{ fontSize: 20, color: 'primary.main' }} />
+        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+          {t('filters.title')}
+        </Typography>
       </Box>
 
       <Box
@@ -79,7 +58,7 @@ export function FilterBar({
           options={allTags}
           value={filters.tags}
           onChange={(_, tags) => onChange({ ...filters, tags })}
-          renderInput={(params) => <TextField {...params} label="Tags" size="small" />}
+          renderInput={(params) => <TextField {...params} label={t('filters.tags')} size="small" />}
           renderValue={(tags, getItemProps) =>
             tags.map((tag, index) => {
               const { key, ...props } = getItemProps({ index });
@@ -89,9 +68,9 @@ export function FilterBar({
         />
 
         <FormControl size="small">
-          <InputLabel>Carte</InputLabel>
+          <InputLabel>{t('filters.card')}</InputLabel>
           <Select
-            label="Carte"
+            label={t('filters.card')}
             value={filters.cardId === null ? '' : String(filters.cardId)}
             onChange={(e) => {
               const val = e.target.value;
@@ -101,7 +80,7 @@ export function FilterBar({
               });
             }}
           >
-            <MenuItem value="">Toutes</MenuItem>
+            <MenuItem value="">{t('filters.allCards')}</MenuItem>
             {cards.map((card) => (
               <MenuItem key={card.id} value={card.id}>
                 {card.title}
@@ -111,9 +90,9 @@ export function FilterBar({
         </FormControl>
 
         <FormControl size="small">
-          <InputLabel>Ajouté par</InputLabel>
+          <InputLabel>{t('filters.addedBy')}</InputLabel>
           <Select
-            label="Ajouté par"
+            label={t('filters.addedBy')}
             value={filters.createdBy ?? ''}
             onChange={(e) =>
               onChange({
@@ -122,7 +101,7 @@ export function FilterBar({
               })
             }
           >
-            <MenuItem value="">Tous</MenuItem>
+            <MenuItem value="">{t('filters.allAuthors')}</MenuItem>
             {allAuthors.map((author) => (
               <MenuItem key={author} value={author}>
                 {author}
@@ -132,7 +111,7 @@ export function FilterBar({
         </FormControl>
 
         <TextField
-          label="Depuis le"
+          label={t('filters.dateFrom')}
           type="date"
           size="small"
           value={filters.dateFrom ?? ''}
@@ -141,7 +120,7 @@ export function FilterBar({
         />
 
         <TextField
-          label="Jusqu'au"
+          label={t('filters.dateTo')}
           type="date"
           size="small"
           value={filters.dateTo ?? ''}
@@ -155,7 +134,7 @@ export function FilterBar({
             onChange={(e) => onChange({ ...filters, favoritesOnly: e.target.checked })}
             size="small"
           />
-          <Typography variant="body2">Favoris</Typography>
+          <Typography variant="body2">{t('filters.favorites')}</Typography>
         </Box>
 
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -164,7 +143,7 @@ export function FilterBar({
             onChange={(e) => onChange({ ...filters, deadOnly: e.target.checked })}
             size="small"
           />
-          <Typography variant="body2">Liens morts</Typography>
+          <Typography variant="body2">{t('filters.deadLinks')}</Typography>
         </Box>
       </Box>
     </Paper>

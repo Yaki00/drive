@@ -1,18 +1,15 @@
 import { Autocomplete, Chip, TextField } from '@mui/material';
+import { useLocale } from '../context/LocaleContext';
 
 interface TagsInputProps {
   value: string[];
   onChange: (tags: string[]) => void;
-  label?: string;
   suggestions?: string[];
 }
 
-export function TagsInput({
-  value,
-  onChange,
-  label = 'Tags',
-  suggestions = [],
-}: TagsInputProps) {
+export function TagsInput({ value, onChange, suggestions = [] }: TagsInputProps) {
+  const { t } = useLocale();
+
   return (
     <Autocomplete
       multiple
@@ -41,9 +38,9 @@ export function TagsInput({
       renderInput={(params) => (
         <TextField
           {...params}
-          label={label}
-          placeholder="Ajouter un tag…"
-          helperText="Entrée pour valider"
+          label={t('tags.label')}
+          placeholder={t('tags.placeholder')}
+          helperText={t('tags.hint')}
         />
       )}
     />

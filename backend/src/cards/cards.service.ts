@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Card } from '../entities/card.entity';
 import { Folder } from '../entities/folder.entity';
 import { Link } from '../entities/link.entity';
+import { BulkImportLinksDto } from './dto/bulk-import-links.dto';
 import { CreateCardDto } from './dto/create-card.dto';
 import { CreateFolderDto } from './dto/create-folder.dto';
 import { CreateLinkDto } from './dto/create-link.dto';
@@ -88,9 +89,8 @@ export class CardsService {
   }
 
   async update(id: number, dto: UpdateCardDto): Promise<Card> {
-    const card = await this.findOne(id);
-    Object.assign(card, dto);
-    await this.cardsRepository.save(card);
+    await this.findOne(id);
+    await this.cardsRepository.update(id, dto);
     return this.findOne(id);
   }
 
@@ -128,17 +128,14 @@ export class CardsService {
   }
 
   async updateFolder(folderId: number, dto: UpdateFolderDto): Promise<Folder> {
-    const folder = await this.foldersRepository.findOne({
-      where: { id: folderId },
-      relations: { links: true },
-    });
+    const folder = await this.foldersRepository.findOne({ where: { id: folderId } });
 
     if (!folder) {
       throw new NotFoundException(`Folder #${folderId} not found`);
     }
 
-    Object.assign(folder, dto);
-    return this.foldersRepository.save(folder);
+    await this.foldersRepository.update(folderId, dto);
+    return this.foldersRepository.findOneOrFail({ where: { id: folderId } });
   }
 
   async removeFolder(folderId: number): Promise<void> {
@@ -172,10 +169,48 @@ export class CardsService {
       folderId: dto.folderId ?? null,
       tags: dto.tags ?? [],
       isFavorite: dto.isFavorite ?? false,
+      isDead: false,
       sortOrder: maxOrder,
     });
 
     return this.linksRepository.save(link);
+  }
+
+  async addLinksBulk(
+    cardId: number,
+    dto: BulkImportLinksDto,
+  ): Promise<{ created: number; links: Link[] }> {
+    await this.findOne(cardId);
+
+    if (dto.folderId) {
+      const folder = await this.foldersRepository.findOne({
+        where: { id: dto.folderId, cardId },
+      });
+
+      if (!folder) {
+        throw new NotFoundException(`Folder #${dto.folderId} not found in card #${cardId}`);
+      }
+    }
+
+    const targetFolderId = dto.folderId ?? null;
+    const createdLinks: Link[] = [];
+
+    for (const item of dto.links) {
+      const maxOrder = await this.getNextLinkSortOrder(cardId, targetFolderId);
+      const link = this.linksRepository.create({
+        ...item,
+        cardId,
+        folderId: item.folderId ?? targetFolderId,
+        tags: item.tags ?? [],
+        isFavorite: item.isFavorite ?? false,
+        isDead: false,
+        createdBy: item.createdBy ?? 'extension',
+        sortOrder: maxOrder,
+      });
+      createdLinks.push(await this.linksRepository.save(link));
+    }
+
+    return { created: createdLinks.length, links: createdLinks };
   }
 
   async updateLink(linkId: number, dto: UpdateLinkDto): Promise<Link> {
@@ -218,6 +253,10 @@ export class CardsService {
 
     if (dto.url && dto.url !== link.url) {
       link.isDead = false;
+      link.lastCheckedAt = null;
+    }
+
+    if (dto.isDead === false) {
       link.lastCheckedAt = null;
     }
 
@@ -270,7 +309,9 @@ export class CardsService {
         }
 
         link.sortOrder = item.sortOrder;
-        link.folderId = item.folderId ?? null;
+        if (item.folderId !== undefined) {
+          link.folderId = item.folderId;
+        }
         await this.linksRepository.save(link);
       }
     }
@@ -349,30 +390,33 @@ export class CardsService {
   private async isLinkDead(url: string): Promise<boolean> {
     if (!this.isUrlSafe(url)) return false;
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
+      const headers = { 'User-Agent': 'Bookmarks-LinkChecker/1.0' };
 
       let response = await fetch(url, {
         method: 'HEAD',
         signal: controller.signal,
         redirect: 'follow',
-        headers: { 'User-Agent': 'Bookmarks-LinkChecker/1.0' },
+        headers,
       });
 
-      if (response.status === 405 || response.status === 501) {
+      if (!response.ok) {
         response = await fetch(url, {
           method: 'GET',
           signal: controller.signal,
           redirect: 'follow',
-          headers: { 'User-Agent': 'Bookmarks-LinkChecker/1.0' },
+          headers,
         });
       }
 
-      clearTimeout(timeout);
       return response.status >= 400;
     } catch {
       return true;
+    } finally {
+      clearTimeout(timeout);
     }
   }
 }

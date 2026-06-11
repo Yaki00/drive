@@ -3,13 +3,17 @@ import DarkModeIcon from '@mui/icons-material/DarkMode';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import LoginOutlinedIcon from '@mui/icons-material/LoginOutlined';
 import RedoIcon from '@mui/icons-material/Redo';
+import TranslateIcon from '@mui/icons-material/Translate';
 import UndoIcon from '@mui/icons-material/Undo';
 import { Badge, Box, Button, Container, IconButton, Tooltip, Typography } from '@mui/material';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
+import { useLocale } from '../context/LocaleContext';
 import { useThemeMode } from '../context/ThemeModeContext';
+import type { SessionUser } from '../utils/sessionUser';
 
 interface NavbarProps {
   actionButton?: React.ReactNode;
+  sessionUser?: SessionUser | null;
   onUndo?: () => void;
   onRedo?: () => void;
   undoCount?: number;
@@ -20,6 +24,7 @@ interface NavbarProps {
 
 export function Navbar({
   actionButton,
+  sessionUser = null,
   onUndo,
   onRedo,
   undoCount = 0,
@@ -29,6 +34,7 @@ export function Navbar({
 }: NavbarProps) {
   const location = useLocation();
   const { mode, toggleMode } = useThemeMode();
+  const { t, toggleLocale } = useLocale();
   const isLoginPage = location.pathname === '/login';
   const isHome = location.pathname === '/';
 
@@ -77,17 +83,33 @@ export function Navbar({
             </Box>
             <Box>
               <Typography variant="h5" component="span" sx={{ fontWeight: 700, lineHeight: 1.2, display: 'block' }}>
-                Bookmarks
+                {t('app.title')}
               </Typography>
               <Typography variant="body2" sx={{ opacity: 0.9, mt: 0.25 }}>
-                APS Tools
+                {t('app.subtitle')}
               </Typography>
             </Box>
           </Box>
 
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+            {isHome && sessionUser && (
+              <Typography
+                variant="body2"
+                sx={{
+                  opacity: 0.95,
+                  px: 1.5,
+                  py: 0.5,
+                  borderRadius: 1,
+                  bgcolor: 'rgba(255,255,255,0.12)',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {t('nav.loggedInAs', { id: sessionUser.id, name: sessionUser.fullName })}
+              </Typography>
+            )}
+
             {isHome && onUndo && (
-              <Tooltip title={canUndo ? `Retour (${undoCount})` : 'Rien à annuler'}>
+              <Tooltip title={canUndo ? t('nav.undo', { count: undoCount }) : t('nav.nothingToUndo')}>
                 <span>
                   <IconButton
                     onClick={onUndo}
@@ -107,7 +129,7 @@ export function Navbar({
             )}
 
             {isHome && onRedo && (
-              <Tooltip title={canRedo ? `Suivant (${redoCount})` : 'Rien à rétablir'}>
+              <Tooltip title={canRedo ? t('nav.redo', { count: redoCount }) : t('nav.nothingToRedo')}>
                 <span>
                   <IconButton
                     onClick={onRedo}
@@ -126,7 +148,16 @@ export function Navbar({
               </Tooltip>
             )}
 
-            <Tooltip title={mode === 'dark' ? 'Mode clair' : 'Mode sombre'}>
+            <Tooltip title={t('nav.language')}>
+              <IconButton
+                onClick={toggleLocale}
+                sx={{ color: 'primary.contrastText', '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' } }}
+              >
+                <TranslateIcon />
+              </IconButton>
+            </Tooltip>
+
+            <Tooltip title={mode === 'dark' ? t('nav.lightMode') : t('nav.darkMode')}>
               <IconButton
                 onClick={toggleMode}
                 sx={{ color: 'primary.contrastText', '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' } }}
@@ -136,6 +167,7 @@ export function Navbar({
             </Tooltip>
 
             {actionButton}
+
             {!isLoginPage && (
               <Button
                 component={RouterLink}
@@ -151,7 +183,7 @@ export function Navbar({
                   },
                 }}
               >
-                Se connecter
+                {t('nav.signIn')}
               </Button>
             )}
           </Box>

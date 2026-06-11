@@ -8,6 +8,7 @@ import {
   Typography,
 } from '@mui/material';
 import { useEffect, useState } from 'react';
+import { useLocale } from '../context/LocaleContext';
 import type { CreateFolderPayload, Folder } from '../types';
 
 interface FolderDialogProps {
@@ -23,6 +24,7 @@ const emptyForm: CreateFolderPayload = {
 };
 
 export function FolderDialog({ open, folder, onClose, onSave }: FolderDialogProps) {
+  const { t } = useLocale();
   const [form, setForm] = useState<CreateFolderPayload>(emptyForm);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -43,7 +45,7 @@ export function FolderDialog({ open, folder, onClose, onSave }: FolderDialogProp
 
   const handleSubmit = async () => {
     if (!form.title.trim()) {
-      setError('Le titre est obligatoire.');
+      setError(t('folderDialog.titleRequired'));
       return;
     }
 
@@ -57,7 +59,7 @@ export function FolderDialog({ open, folder, onClose, onSave }: FolderDialogProp
       });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur inconnue');
+      setError(err instanceof Error ? err.message : t('linkDialog.unknownError'));
     } finally {
       setLoading(false);
     }
@@ -65,17 +67,17 @@ export function FolderDialog({ open, folder, onClose, onSave }: FolderDialogProp
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>{folder ? 'Modifier le dossier' : 'Nouveau dossier'}</DialogTitle>
+      <DialogTitle>{folder ? t('folderDialog.edit') : t('folderDialog.new')}</DialogTitle>
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
         <TextField
-          label="Titre"
+          label={t('folderDialog.title')}
           value={form.title}
           onChange={(e) => setForm({ ...form, title: e.target.value })}
           autoFocus
           fullWidth
         />
         <TextField
-          label="Description (optionnel)"
+          label={t('folderDialog.description')}
           value={form.description}
           onChange={(e) => setForm({ ...form, description: e.target.value })}
           multiline
@@ -89,9 +91,9 @@ export function FolderDialog({ open, folder, onClose, onSave }: FolderDialogProp
         )}
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Annuler</Button>
+        <Button onClick={onClose}>{t('folderDialog.cancel')}</Button>
         <Button variant="contained" onClick={handleSubmit} disabled={loading}>
-          {folder ? 'Enregistrer' : 'Créer'}
+          {folder ? t('folderDialog.save') : t('folderDialog.create')}
         </Button>
       </DialogActions>
     </Dialog>

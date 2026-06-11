@@ -14,6 +14,7 @@ import {
   Typography,
 } from '@mui/material';
 import { useEffect, useMemo, useState } from 'react';
+import { useLocale } from '../context/LocaleContext';
 import type { Card, CreateLinkPayload, Link } from '../types';
 import { isValidUrl, normalizeUrl } from '../utils/url';
 import { TagsInput } from './TagsInput';
@@ -43,6 +44,7 @@ export function LinkDialog({
   onSave,
   tagSuggestions = [],
 }: LinkDialogProps) {
+  const { t } = useLocale();
   const [form, setForm] = useState<CreateLinkPayload & { cardId?: number }>(emptyForm);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -73,13 +75,13 @@ export function LinkDialog({
 
   const handleSubmit = async () => {
     if (!form.title.trim() || !form.url.trim()) {
-      setError('Le titre et l\'URL sont obligatoires.');
+      setError(t('linkDialog.required'));
       return;
     }
 
     const normalizedUrl = normalizeUrl(form.url);
     if (!isValidUrl(normalizedUrl)) {
-      setError('L\'URL n\'est pas valide.');
+      setError(t('linkDialog.invalidUrl'));
       return;
     }
 
@@ -98,7 +100,7 @@ export function LinkDialog({
       });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur inconnue');
+      setError(err instanceof Error ? err.message : t('linkDialog.unknownError'));
     } finally {
       setLoading(false);
     }
@@ -106,24 +108,24 @@ export function LinkDialog({
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>{link ? 'Modifier le lien' : 'Ajouter un lien'}</DialogTitle>
+      <DialogTitle>{link ? t('linkDialog.edit') : t('linkDialog.add')}</DialogTitle>
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
         <TextField
-          label="Titre"
+          label={t('linkDialog.title')}
           value={form.title}
           onChange={(e) => setForm({ ...form, title: e.target.value })}
           autoFocus
           fullWidth
         />
         <TextField
-          label="URL"
+          label={t('linkDialog.url')}
           value={form.url}
           onChange={(e) => setForm({ ...form, url: e.target.value })}
-          placeholder="exemple.com ou https://..."
+          placeholder={t('linkDialog.urlPlaceholder')}
           fullWidth
         />
         <TextField
-          label="Description (optionnel)"
+          label={t('linkDialog.description')}
           value={form.description}
           onChange={(e) => setForm({ ...form, description: e.target.value })}
           multiline
@@ -133,9 +135,9 @@ export function LinkDialog({
         {link && cards.length > 0 && (
           <>
             <FormControl fullWidth size="small">
-              <InputLabel>Carte</InputLabel>
+              <InputLabel>{t('linkDialog.card')}</InputLabel>
               <Select
-                label="Carte"
+                label={t('linkDialog.card')}
                 value={form.cardId ?? ''}
                 onChange={(e) =>
                   setForm({
@@ -153,9 +155,9 @@ export function LinkDialog({
               </Select>
             </FormControl>
             <FormControl fullWidth size="small">
-              <InputLabel>Emplacement</InputLabel>
+              <InputLabel>{t('linkDialog.location')}</InputLabel>
               <Select
-                label="Emplacement"
+                label={t('linkDialog.location')}
                 value={form.folderId === null || form.folderId === undefined ? '' : String(form.folderId)}
                 onChange={(e) =>
                   setForm({
@@ -164,7 +166,7 @@ export function LinkDialog({
                   })
                 }
               >
-                <MenuItem value="">Racine de la carte</MenuItem>
+                <MenuItem value="">{t('linkDialog.root')}</MenuItem>
                 {folderOptions.map((folder) => (
                   <MenuItem key={folder.id} value={folder.id}>
                     {folder.title}
@@ -186,7 +188,7 @@ export function LinkDialog({
               onChange={(e) => setForm({ ...form, isFavorite: e.target.checked })}
             />
           }
-          label="Ajouter aux favoris"
+          label={t('linkDialog.favorite')}
         />
         {error && (
           <Typography variant="body2" color="error">
@@ -195,9 +197,9 @@ export function LinkDialog({
         )}
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Annuler</Button>
+        <Button onClick={onClose}>{t('linkDialog.cancel')}</Button>
         <Button variant="contained" onClick={handleSubmit} disabled={loading}>
-          {link ? 'Enregistrer' : 'Ajouter'}
+          {link ? t('linkDialog.save') : t('linkDialog.addBtn')}
         </Button>
       </DialogActions>
     </Dialog>

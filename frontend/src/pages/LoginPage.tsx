@@ -6,15 +6,17 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import { useNavigate } from 'react-router-dom';
 import { Navbar } from '../components/Navbar';
-import { useTheme } from '@mui/material/styles';
+import { useLocale } from '../context/LocaleContext';
 import { getGreenPale } from '../theme';
 
 export function LoginPage() {
   const navigate = useNavigate();
   const theme = useTheme();
   const greenPale = getGreenPale(theme.palette.mode);
+  const { t } = useLocale();
 
   return (
     <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'background.default' }}>
@@ -58,15 +60,15 @@ export function LoginPage() {
           </Box>
 
           <Typography variant="h5" align="center" sx={{ fontWeight: 700, mb: 0.5 }}>
-            Connexion
+            {t('login.title')}
           </Typography>
           <Typography variant="body2" color="text.secondary" align="center" sx={{ mb: 3 }}>
-            Accédez à vos bookmarks
+            {t('login.subtitle')}
           </Typography>
 
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 3 }}>
-            <TextField label="Identifiant" fullWidth disabled />
-            <TextField label="Mot de passe" type="password" fullWidth disabled />
+            <TextField label={t('login.username')} fullWidth disabled />
+            <TextField label={t('login.password')} type="password" fullWidth disabled />
           </Box>
 
           <Button
@@ -76,7 +78,7 @@ export function LoginPage() {
             startIcon={<LoginOutlinedIcon />}
             onClick={() => navigate('/')}
           >
-            Se connecter
+            {t('login.submit')}
           </Button>
         </Paper>
       </Box>

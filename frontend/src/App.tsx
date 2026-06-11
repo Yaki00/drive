@@ -1,11 +1,13 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { LocaleProvider } from './context/LocaleContext';
 import { ThemeModeProvider } from './context/ThemeModeContext';
 import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/LoginPage';
 
 function App() {
   return (
-    <ThemeModeProvider>
+    <LocaleProvider>
+      <ThemeModeProvider>
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<HomePage />} />
@@ -13,7 +15,8 @@ function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
-    </ThemeModeProvider>
+      </ThemeModeProvider>
+    </LocaleProvider>
   );
 }
 

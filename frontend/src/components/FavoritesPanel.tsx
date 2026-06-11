@@ -13,6 +13,7 @@ import {
   Typography,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
+import { useLocale } from '../context/LocaleContext';
 import { getGreenPale } from '../theme';
 import type { FavoriteLink } from '../types';
 
@@ -25,6 +26,7 @@ interface FavoritesPanelProps {
 export function FavoritesPanel({ favorites, onToggleFavorite, onLinkOpen }: FavoritesPanelProps) {
   const theme = useTheme();
   const greenPale = getGreenPale(theme.palette.mode);
+  const { t } = useLocale();
 
   if (favorites.length === 0) return null;
 
@@ -53,7 +55,7 @@ export function FavoritesPanel({ favorites, onToggleFavorite, onLinkOpen }: Favo
       >
         <StarIcon sx={{ color: '#F9A825', fontSize: 20 }} />
         <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-          Favoris
+          {t('favorites.title')}
         </Typography>
         <Chip label={favorites.length} size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
       </Box>
@@ -64,7 +66,7 @@ export function FavoritesPanel({ favorites, onToggleFavorite, onLinkOpen }: Favo
             key={link.id}
             disablePadding
             secondaryAction={
-              <Tooltip title="Retirer des favoris">
+              <Tooltip title={t('favorites.remove')}>
                 <IconButton size="small" onClick={() => onToggleFavorite(link)} sx={{ p: 0.5 }}>
                   <StarIcon sx={{ fontSize: 16, color: '#F9A825' }} />
                 </IconButton>
