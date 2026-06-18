@@ -7,3 +7,4 @@ deploy/podman/rootfs/
 deploy/podman/app/
 deploy/podman/data/
 deploy/podman/env.local
+# vendor/*.tgz sont versionnés (build hors-ligne)

@@ -67,16 +67,15 @@ In development, the frontend proxies `/api` to the backend (no CORS issues if Vi
 
 ## Podman (offline / no public images)
 
-Dans un monorepo, ce module vit sous `bookmarks/` (seul ce dossier est synchronisé sur le serveur).
+**Aucun npm sur le serveur** : front, back et dépendances (dont `tslib`) sont dans `deploy/podman/vendor/*.tgz`.
 
 ```bash
 cd bookmarks
+git pull
 chmod +x deploy/podman/*.sh
 ./deploy/podman/build.sh
 ./deploy/podman/run.sh
 ```
-
-Build elsewhere, deploy on Red Hat without npm: `./deploy/podman/export-image.sh` → `podman load` on the server.
 
 See [deploy/podman/README.md](deploy/podman/README.md) for details.
 

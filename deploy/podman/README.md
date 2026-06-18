@@ -64,19 +64,24 @@ Le conteneur monte `DATA_DIR` sur `/data` ; l'app écrit `drive.db` dedans. Pas 
 
 ## Prérequis
 
+**Sur le serveur Red Hat (prod) :**
 - `podman`
-- `node` et `npm` sur la **machine de build** (ou miroir npm interne)
-- Sur le serveur Red Hat en prod : seulement `podman` si l'image est pré-construite
+- `node` (binaire local pour embarquer dans l'image — `prepare-rootfs.sh`)
+- **Pas de npm** — les dépendances sont dans `deploy/podman/vendor/*.tgz` (git)
 
-## Construction
+**Pour mettre à jour le code** (CI ou poste avec npm) :
+- `./deploy/podman/refresh-vendor.sh` puis commit des `.tgz`
 
-Depuis la racine **bookmarks** :
+## Construction (hors-ligne)
 
 ```bash
 cd bookmarks
+git pull
 chmod +x deploy/podman/*.sh
 ./deploy/podman/build.sh
 ```
+
+Aucun appel à `registry.npmjs.org`.
 
 ## Exécution
 
@@ -130,7 +135,7 @@ curl http://localhost:3001/health
 ## Dépannage
 
 - **Racine introuvable** : `export BOOKMARKS_ROOT=/chemin/vers/bookmarks`
-- **`zod-validation-error` / npm bloqué** : `build.sh` n'installe plus eslint (uniquement les outils de compilation). Faites `git pull` puis relancez `./deploy/podman/build.sh`
-- **npm bloqué autrement** : builder sur une autre machine, transférer uniquement le `.tar`
+- **`tslib` / registry bloqué** : `tslib` est **obligatoire** (NestJS, RxJS). Sur un poste avec internet : `./prepare-vendor.sh`, copier `vendor/*.tgz` sur le serveur, relancer `./build.sh`
+- **`zod-validation-error`** : `build.sh` n'installe plus eslint en mode npm en ligne
 - **SELinux** : le volume utilise le suffixe `:Z` (adapté à RHEL)
 - **Santé** : `curl http://localhost:3001/health` → `{"status":"ok"}`
