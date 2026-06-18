@@ -12,14 +12,25 @@ IMAGE_TAG="${IMAGE_TAG:-latest}"
 
 echo "→ Racine bookmarks : $PROJECT_ROOT"
 
-echo "=== 1/5 — Dépendances frontend ==="
+echo "=== 1/5 — Build frontend (sans eslint / zod-validation-error) ==="
 cd "$PROJECT_ROOT/frontend"
-npm ci
+# Prod deps only, puis outils de build — évite eslint-plugin-react-hooks → zod-validation-error
+npm ci --omit=dev
+npm install --no-save --no-audit \
+  vite@^8.0.12 \
+  typescript@~6.0.2 \
+  "@vitejs/plugin-react@^6.0.1" \
+  "@types/node@^24.12.3" \
+  "@types/react@^19.2.14" \
+  "@types/react-dom@^19.2.3"
 VITE_API_URL= npm run build
 
-echo "=== 2/5 — Dépendances et build backend ==="
+echo "=== 2/5 — Build backend (sans jest / eslint) ==="
 cd "$PROJECT_ROOT/backend"
-npm ci
+npm ci --omit=dev
+npm install --no-save --no-audit \
+  "@nestjs/cli@^11.0.0" \
+  typescript@^5.7.3
 npm run build
 
 echo "=== 3/5 — Assemblage app/ (API + UI statique) ==="

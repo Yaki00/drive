@@ -130,6 +130,7 @@ curl http://localhost:3001/health
 ## Dépannage
 
 - **Racine introuvable** : `export BOOKMARKS_ROOT=/chemin/vers/bookmarks`
-- **npm bloqué** : builder sur une autre machine, transférer uniquement le `.tar`
+- **`zod-validation-error` / npm bloqué** : `build.sh` n'installe plus eslint (uniquement les outils de compilation). Faites `git pull` puis relancez `./deploy/podman/build.sh`
+- **npm bloqué autrement** : builder sur une autre machine, transférer uniquement le `.tar`
 - **SELinux** : le volume utilise le suffixe `:Z` (adapté à RHEL)
 - **Santé** : `curl http://localhost:3001/health` → `{"status":"ok"}`
