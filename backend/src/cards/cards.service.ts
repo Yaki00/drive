@@ -319,25 +319,42 @@ export class CardsService {
     return this.findOne(cardId);
   }
 
-  async checkDeadLinks(): Promise<{ checked: number; dead: number; skipped: number }> {
+  async checkDeadLinks(): Promise<{
+    checked: number;
+    dead: number;
+    skipped: number;
+    unreachable: number;
+  }> {
     const links = await this.linksRepository.find();
     let dead = 0;
     let skipped = 0;
+    let unreachable = 0;
 
     for (const link of links) {
-      if (!this.isUrlSafe(link.url)) {
+      const normalizedUrl = this.normalizeUrlForCheck(link.url);
+      if (!this.isUrlSafe(normalizedUrl)) {
         skipped++;
         continue;
       }
 
-      const isDead = await this.isLinkDead(link.url);
-      link.isDead = isDead;
+      const status = await this.resolveLinkStatus(normalizedUrl);
+      if (status === 'unreachable') {
+        unreachable++;
+        continue;
+      }
+
+      link.isDead = status === 'dead';
       link.lastCheckedAt = new Date();
       await this.linksRepository.save(link);
-      if (isDead) dead++;
+      if (link.isDead) dead++;
     }
 
-    return { checked: links.length - skipped, dead, skipped };
+    return {
+      checked: links.length - skipped - unreachable,
+      dead,
+      skipped,
+      unreachable,
+    };
   }
 
   private async getNextLinkSortOrder(
@@ -387,14 +404,26 @@ export class CardsService {
     }
   }
 
-  private async isLinkDead(url: string): Promise<boolean> {
-    if (!this.isUrlSafe(url)) return false;
+  private normalizeUrlForCheck(url: string): string {
+    const trimmed = url.trim();
+    if (!trimmed) return trimmed;
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    return `https://${trimmed}`;
+  }
+
+  private async resolveLinkStatus(
+    url: string,
+  ): Promise<'alive' | 'dead' | 'unreachable'> {
+    if (!this.isUrlSafe(url)) return 'unreachable';
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    const timeout = setTimeout(() => controller.abort(), 12000);
 
     try {
-      const headers = { 'User-Agent': 'Bookmarks-LinkChecker/1.0' };
+      const headers = {
+        'User-Agent': 'Bookmarks-LinkChecker/1.0',
+        Accept: 'text/html,application/xhtml+xml,*/*',
+      };
 
       let response = await fetch(url, {
         method: 'HEAD',
@@ -412,9 +441,10 @@ export class CardsService {
         });
       }
 
-      return response.status >= 400;
+      return response.status >= 400 ? 'dead' : 'alive';
     } catch {
-      return true;
+      // Network/proxy/TLS errors: do not mark as dead (common on locked-down PCs).
+      return 'unreachable';
     } finally {
       clearTimeout(timeout);
     }

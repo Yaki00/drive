@@ -63,7 +63,7 @@ import { collectAllTags, countResults } from '../utils/search';
 import { collectFoldersByIds, collectLinksByIds, exportLinksFile } from '../utils/linkTransfer';
 import { restoreCard, restoreFolder, restoreLink, snapshotReorder } from '../utils/undoRestore';
 
-type SnackbarState = { message: string; severity: 'success' | 'error' | 'info' };
+type SnackbarState = { message: string; severity: 'success' | 'error' | 'info' | 'warning' };
 type ConfirmState = {
   title: string;
   message: string;
@@ -518,9 +518,17 @@ export function HomePage() {
       const skipped = result.skipped
         ? t('snackbar.linksSkippedSuffix', { count: result.skipped })
         : '';
+      const unreachable = result.unreachable
+        ? t('snackbar.linksUnreachableSuffix', { count: result.unreachable })
+        : '';
       notify(
-        t('snackbar.linksChecked', { checked: result.checked, dead: result.dead, skipped }),
-        'info',
+        t('snackbar.linksChecked', {
+          checked: result.checked,
+          dead: result.dead,
+          skipped,
+          unreachable,
+        }),
+        result.unreachable ? 'warning' : 'info',
       );
       await loadCards();
     } catch (err) {

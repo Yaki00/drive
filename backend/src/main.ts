@@ -14,11 +14,14 @@ async function bootstrap() {
         callback(null, true);
         return;
       }
-      if (
-        /^http:\/\/localhost:\d+$/.test(origin) ||
-        /^chrome-extension:\/\//.test(origin) ||
-        /^extension:\/\//.test(origin)
-      ) {
+      if (/^http:\/\/localhost:\d+$/.test(origin)) {
+        callback(null, true);
+        return;
+      }
+      const allowed = process.env.CORS_ORIGIN?.split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
+      if (allowed?.includes(origin)) {
         callback(null, true);
         return;
       }

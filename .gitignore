@@ -3,3 +3,7 @@ dist/
 *.db
 .env
 .DS_Store
+deploy/podman/rootfs/
+deploy/podman/app/
+deploy/podman/data/
+deploy/podman/env.local

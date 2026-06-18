@@ -1,0 +1,21 @@
+# Image 100 % locale — aucun FROM public.
+# Le répertoire rootfs/ est assemblé par prepare-rootfs.sh (Node + libs depuis l'hôte).
+# Le répertoire app/ est produit par build.sh (backend compilé + frontend statique).
+
+FROM scratch
+
+COPY rootfs/ /
+COPY app/ /app/
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV SERVE_STATIC=true
+ENV DATA_DIR=/data
+ENV PORT=3001
+
+EXPOSE 3001
+VOLUME /data
+
+ENTRYPOINT ["/usr/local/bin/node"]
+CMD ["/app/dist/main.js"]

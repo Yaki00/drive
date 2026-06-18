@@ -19,6 +19,7 @@ describe('CardsService bulk import', () => {
     createQueryBuilder: jest.fn(),
   };
   const linksRepository = {
+    find: jest.fn(),
     create: jest.fn((data) => data),
     save: jest.fn(async (data) => ({ id: 99, ...data })),
     createQueryBuilder: jest.fn(() => ({
@@ -62,6 +63,27 @@ describe('CardsService bulk import', () => {
 
     expect(result.created).toBe(2);
     expect(linksRepository.save).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not mark links dead when network check is unreachable', async () => {
+    const link = {
+      id: 1,
+      url: 'https://google.com',
+      isDead: false,
+    };
+    linksRepository.find.mockResolvedValue([link]);
+
+    const fetchMock = jest
+      .spyOn(global, 'fetch')
+      .mockRejectedValue(new Error('network blocked'));
+
+    const result = await service.checkDeadLinks();
+
+    expect(result.unreachable).toBe(1);
+    expect(result.dead).toBe(0);
+    expect(linksRepository.save).not.toHaveBeenCalled();
+
+    fetchMock.mockRestore();
   });
 
   it('throws when target folder is missing', async () => {

@@ -78,6 +78,7 @@ export interface DeadLinkCheckResult {
   checked: number;
   dead: number;
   skipped?: number;
+  unreachable?: number;
 }
 
 export interface CardOrderItem {

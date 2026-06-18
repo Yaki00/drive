@@ -59,8 +59,26 @@ In development, the frontend proxies `/api` to the backend (no CORS issues if Vi
 
 | Variable | Description |
 |----------|-------------|
-| `VITE_API_URL` | API URL in production build (dev default: `/api`) |
+| `VITE_API_URL` | API URL in production build (dev default: `/api`; same-origin prod default: ``) |
 | `PORT` | Backend port (default `3001`) |
+| `SERVE_STATIC` | When `true`, NestJS serves the built frontend (`deploy/podman` sets this) |
+| `DATA_DIR` | Directory for `drive.db` (default `.`; container default `/data`) |
+| `CORS_ORIGIN` | Comma-separated allowed origins for cross-origin API access |
+
+## Podman (offline / no public images)
+
+Dans un monorepo, ce module vit sous `bookmarks/` (seul ce dossier est synchronisé sur le serveur).
+
+```bash
+cd bookmarks
+chmod +x deploy/podman/*.sh
+./deploy/podman/build.sh
+./deploy/podman/run.sh
+```
+
+Build elsewhere, deploy on Red Hat without npm: `./deploy/podman/export-image.sh` → `podman load` on the server.
+
+See [deploy/podman/README.md](deploy/podman/README.md) for details.
 
 ## Notes
 
