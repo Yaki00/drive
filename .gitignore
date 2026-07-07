@@ -1,6 +1,8 @@
 node_modules/
 dist/
 *.db
+drive.json
+backend/drive.json
 .env
 .DS_Store
 deploy/podman/rootfs/
