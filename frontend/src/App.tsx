@@ -1,7 +1,9 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { LocaleProvider } from './context/LocaleContext';
 import { ThemeModeProvider } from './context/ThemeModeContext';
+import { ActivityPage } from './pages/ActivityPage';
 import { HomePage } from './pages/HomePage';
+import { KpiPage } from './pages/KpiPage';
 import { LoginPage } from './pages/LoginPage';
 
 function App() {
@@ -11,6 +13,8 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<HomePage />} />
+          <Route path="/activity" element={<ActivityPage />} />
+          <Route path="/kpi" element={<KpiPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

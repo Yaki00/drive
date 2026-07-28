@@ -1,3 +1,5 @@
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import HistoryIcon from '@mui/icons-material/History';
 import LinkIcon from '@mui/icons-material/Link';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
@@ -19,6 +21,9 @@ import { useLocale } from '../context/LocaleContext';
 import { getGreenPale } from '../theme';
 import type { HistoryEntry } from '../utils/history';
 
+/** ~5 lignes denses (ListItem dense ≈ 48px). */
+const LIST_MAX_HEIGHT = 240;
+
 interface HistoryPanelProps {
   history: HistoryEntry[];
   onClear: () => void;
@@ -30,6 +35,7 @@ export function HistoryPanel({ history, onClear, onOpen }: HistoryPanelProps) {
   const greenPale = getGreenPale(theme.palette.mode);
   const { t, dateLocale } = useLocale();
   const [now, setNow] = useState(() => Date.now());
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -46,20 +52,30 @@ export function HistoryPanel({ history, onClear, onOpen }: HistoryPanelProps) {
     return new Date(dateStr).toLocaleDateString(dateLocale);
   };
 
-  if (history.length === 0) return null;
-
   return (
     <Paper
       elevation={0}
       sx={{
-        mb: 3,
+        height: '100%',
+        minHeight: 0,
         border: '1px solid',
         borderColor: 'divider',
         borderRadius: 1,
         overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
       }}
     >
       <Box
+        role="button"
+        tabIndex={0}
+        onClick={() => setExpanded((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setExpanded((v) => !v);
+          }
+        }}
         sx={{
           px: 2,
           py: 1.25,
@@ -67,59 +83,93 @@ export function HistoryPanel({ history, onClear, onOpen }: HistoryPanelProps) {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          borderBottom: '1px solid',
+          borderBottom: expanded ? '1px solid' : 'none',
           borderColor: 'divider',
+          flexShrink: 0,
+          cursor: 'pointer',
+          userSelect: 'none',
+          gap: 1,
+          '&:hover': { filter: 'brightness(0.97)' },
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flexGrow: 1 }}>
           <HistoryIcon sx={{ color: 'primary.main', fontSize: 20 }} />
-          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700 }} noWrap>
             {t('history.title')}
           </Typography>
           <Chip label={history.length} size="small" sx={{ height: 20, fontSize: '0.7rem' }} />
         </Box>
-        <Button size="small" onClick={onClear}>
-          {t('history.clear')}
-        </Button>
+        {expanded && history.length > 0 && (
+          <Button
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClear();
+            }}
+            sx={{ flexShrink: 0 }}
+          >
+            {t('history.clear')}
+          </Button>
+        )}
+        {expanded ? (
+          <ExpandLessIcon sx={{ fontSize: 20, color: 'text.secondary', flexShrink: 0 }} />
+        ) : (
+          <ExpandMoreIcon sx={{ fontSize: 20, color: 'text.secondary', flexShrink: 0 }} />
+        )}
       </Box>
 
-      <List dense disablePadding>
-        {history.map((entry) => (
-          <ListItem
-            key={`${entry.linkId}-${entry.openedAt}`}
+      {expanded &&
+        (history.length === 0 ? (
+          <Box sx={{ px: 2, py: 2 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
+            {t('history.empty')}
+          </Typography>
+          </Box>
+        ) : (
+          <List
+            dense
             disablePadding
-            secondaryAction={
-              <Tooltip title={t('history.open')}>
-                <IconButton
-                  size="small"
-                  component="a"
-                  href={entry.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => onOpen(entry)}
-                >
-                  <OpenInNewIcon sx={{ fontSize: 16 }} />
-                </IconButton>
-              </Tooltip>
-            }
+            sx={{
+              maxHeight: LIST_MAX_HEIGHT,
+              overflow: 'auto',
+            }}
           >
-            <ListItemButton
-              onClick={() => onOpen(entry)}
-              sx={{ py: 0.75, px: 2, gap: 1, pr: 6, '&:hover': { bgcolor: greenPale } }}
-            >
-              <LinkIcon sx={{ fontSize: 14, color: entry.cardColor, flexShrink: 0 }} />
-              <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                <Typography variant="body2" noWrap sx={{ fontWeight: 600 }}>
-                  {entry.title}
-                </Typography>
-                <Typography variant="caption" color="text.secondary" noWrap>
-                  {entry.cardTitle} · {formatRelative(entry.openedAt)}
-                </Typography>
-              </Box>
-            </ListItemButton>
-          </ListItem>
+            {history.map((entry) => (
+              <ListItem
+                key={`${entry.linkId}-${entry.openedAt}`}
+                disablePadding
+                secondaryAction={
+                  <Tooltip title={t('history.open')}>
+                    <IconButton
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpen(entry);
+                      }}
+                    >
+                      <OpenInNewIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </Tooltip>
+                }
+              >
+                <ListItemButton
+                  onClick={() => onOpen(entry)}
+                  sx={{ py: 0.75, px: 2, gap: 1, pr: 6, '&:hover': { bgcolor: greenPale } }}
+                >
+                  <LinkIcon sx={{ fontSize: 14, color: entry.cardColor, flexShrink: 0 }} />
+                  <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                    <Typography variant="body2" noWrap sx={{ fontWeight: 600 }}>
+                      {entry.title}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" noWrap>
+                      {entry.cardTitle} · {formatRelative(entry.openedAt)}
+                    </Typography>
+                  </Box>
+                </ListItemButton>
+              </ListItem>
+            ))}
+          </List>
         ))}
-      </List>
     </Paper>
   );
 }

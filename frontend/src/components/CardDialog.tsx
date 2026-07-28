@@ -15,14 +15,12 @@ import type { Card, CreateCardPayload } from '../types';
 import { TagsInput } from './TagsInput';
 
 const COLORS = [
-  '#00965A',
-  '#007348',
-  '#39A87B',
-  '#6ABB97',
-  '#008755',
-  '#1A1A1A',
-  '#5C6660',
-  '#8BC8AA',
+  '#00965A', // vert
+  '#1565C0', // bleu
+  '#E65100', // orange
+  '#6A1B9A', // violet
+  '#00838F', // cyan
+  '#C62828', // rouge
 ];
 
 interface CardDialogProps {
@@ -90,7 +88,7 @@ export function CardDialog({ open, card, onClose, onSave, tagSuggestions = [] }:
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>{card ? t('cardDialog.edit') : t('cardDialog.new')}</DialogTitle>
-      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <TextField
           label={t('cardDialog.title')}
           value={form.title}

@@ -2,6 +2,8 @@ import AddIcon from '@mui/icons-material/Add';
 import BookmarkIcon from '@mui/icons-material/Bookmark';
 import ChecklistIcon from '@mui/icons-material/Checklist';
 import DeleteOutlinedIcon from '@mui/icons-material/DeleteOutlined';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
@@ -20,20 +22,19 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { CardDropZone } from '../components/CardDropZone';
 import { CardDialog } from '../components/CardDialog';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { FavoritesPanel } from '../components/FavoritesPanel';
-import { FilterBar } from '../components/FilterBar';
 import { FolderDialog } from '../components/FolderDialog';
 import { HistoryPanel } from '../components/HistoryPanel';
 import { ImportLinksDialog } from '../components/ImportLinksDialog';
 import { LinkCard } from '../components/LinkCard';
 import { LinkDialog } from '../components/LinkDialog';
 import { Navbar } from '../components/Navbar';
-import { SearchBar } from '../components/SearchBar';
+import { SearchFilterPanel } from '../components/SearchFilterPanel';
 import { BookmarksDndProvider } from '../context/BookmarksDndContext';
 import { useLocale } from '../context/LocaleContext';
 import { useUndo } from '../hooks/useUndo';
@@ -50,7 +51,14 @@ import type {
 } from '../types';
 import { collectAllAuthors } from '../utils/collectAuthors';
 import { getAuthorLabel, getDisplayUser } from '../utils/sessionUser';
-import { extractFavorites } from '../utils/favorites';
+import {
+  applyFavoriteOverlay,
+  ensureFavoriteIds,
+  extractFavorites,
+  loadFavoriteIds,
+  setLinkFavorite,
+  toggleLinkFavorite,
+} from '../utils/favorites';
 import { applyFilters, emptyFilters, hasActiveFilters, type FilterState } from '../utils/filters';
 import {
   addHistoryEntry,
@@ -104,10 +112,14 @@ export function HomePage() {
   const { t } = useLocale();
   const displayUser = getDisplayUser();
   const [cards, setCards] = useState<Card[]>([]);
+  const [favoriteIds, setFavoriteIds] = useState<Set<number>>(() => new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState<FilterState>(emptyFilters);
+  const cardCollapsedStateRef = useRef<Map<number, boolean>>(new Map());
+  const [collapseSyncTick, setCollapseSyncTick] = useState(0);
+  const [allCardsExpanded, setAllCardsExpanded] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>(loadHistory);
   const countLabel = useCallback(
     (count: number, one: TranslationKey, many: TranslationKey) =>
@@ -144,18 +156,26 @@ export function HomePage() {
     canRedo,
   } = useUndo();
 
-  const sortedCards = useMemo(() => sortCards(cards), [cards]);
+  const cardsWithFavorites = useMemo(
+    () => applyFavoriteOverlay(cards, favoriteIds),
+    [cards, favoriteIds],
+  );
+
+  const sortedCards = useMemo(() => sortCards(cardsWithFavorites), [cardsWithFavorites]);
 
   const filteredCards = useMemo(
     () => applyFilters(sortedCards, searchQuery, filters),
     [sortedCards, searchQuery, filters],
   );
 
-  const stats = useMemo(() => countResults(cards), [cards]);
+  const stats = useMemo(() => countResults(cardsWithFavorites), [cardsWithFavorites]);
   const filteredStats = useMemo(() => countResults(filteredCards), [filteredCards]);
-  const favorites = useMemo(() => extractFavorites(cards), [cards]);
-  const tagSuggestions = useMemo(() => collectAllTags(cards), [cards]);
-  const authorSuggestions = useMemo(() => collectAllAuthors(cards), [cards]);
+  const favorites = useMemo(
+    () => extractFavorites(cardsWithFavorites, favoriteIds),
+    [cardsWithFavorites, favoriteIds],
+  );
+  const tagSuggestions = useMemo(() => collectAllTags(cardsWithFavorites), [cardsWithFavorites]);
+  const authorSuggestions = useMemo(() => collectAllAuthors(cardsWithFavorites), [cardsWithFavorites]);
 
   const notify = useCallback((message: string, severity: SnackbarState['severity'] = 'success') => {
     setSnackbar({ message, severity });
@@ -172,7 +192,9 @@ export function HomePage() {
   const loadCards = useCallback(async () => {
     try {
       const data = await api.getCards();
-      setCards(data.map(normalizeCard));
+      const normalized = data.map(normalizeCard);
+      setCards(normalized);
+      setFavoriteIds(ensureFavoriteIds(displayUser.id, normalized));
       setError('');
     } catch (err) {
       const message = err instanceof Error ? err.message : t('error.loadCards');
@@ -180,7 +202,7 @@ export function HomePage() {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [t, displayUser.id]);
 
   useEffect(() => {
     void loadCards();
@@ -298,38 +320,58 @@ export function HomePage() {
           url: editingLink.url,
           description: editingLink.description ?? undefined,
           tags: editingLink.tags,
-          isFavorite: editingLink.isFavorite,
+          environment: editingLink.environment,
           cardId: editingLink.cardId,
           folderId: editingLink.folderId,
         };
+        const previousFavorite = favoriteIds.has(editingLink.id);
+        const nextFavorite = !!data.isFavorite;
         const updatePayload = {
           title: data.title,
           url: data.url,
           description: data.description,
           tags: data.tags,
-          isFavorite: data.isFavorite,
+          environment: data.environment,
           cardId: data.cardId ?? editingLink.cardId,
           folderId: data.folderId ?? null,
         };
         await api.updateLink(editingLink.id, updatePayload);
+        setFavoriteIds(setLinkFavorite(displayUser.id, favoriteIds, editingLink.id, nextFavorite));
         push({
           label: t('undo.linkEdit'),
-          undo: async () => { await api.updateLink(editingLink.id, before); },
-          redo: async () => { await api.updateLink(editingLink.id, updatePayload); },
+          undo: async () => {
+            await api.updateLink(editingLink.id, before);
+            setFavoriteIds((prev) =>
+              setLinkFavorite(displayUser.id, prev, editingLink.id, previousFavorite),
+            );
+          },
+          redo: async () => {
+            await api.updateLink(editingLink.id, updatePayload);
+            setFavoriteIds((prev) =>
+              setLinkFavorite(displayUser.id, prev, editingLink.id, nextFavorite),
+            );
+          },
         });
         notify(t('snackbar.linkUpdated'));
       } else if (activeCardId) {
+        const { isFavorite: markFavorite, ...linkData } = data;
         const created = (await api.addLink(activeCardId, withAuthor({
-          ...data,
+          ...linkData,
           folderId: activeFolderId ?? undefined,
         }))) as Link;
+        if (markFavorite) {
+          setFavoriteIds((prev) => setLinkFavorite(displayUser.id, prev, created.id, true));
+        }
         const cardId = activeCardId;
         const folderId = activeFolderId;
         push({
           label: t('undo.linkAdd'),
-          undo: async () => { await api.deleteLink(created.id); },
+          undo: async () => {
+            await api.deleteLink(created.id);
+            setFavoriteIds((prev) => setLinkFavorite(displayUser.id, prev, created.id, false));
+          },
           redo: async () => {
-            await api.addLink(cardId, withAuthor({ ...data, folderId: folderId ?? undefined }));
+            await api.addLink(cardId, withAuthor({ ...linkData, folderId: folderId ?? undefined }));
           },
         });
         notify(t('snackbar.linkAdded'));
@@ -411,18 +453,20 @@ export function HomePage() {
     });
   };
 
-  const handleToggleFavorite = async (link: Link) => {
-    const wasFavorite = link.isFavorite;
-    await runAction(async () => {
-      await api.updateLink(link.id, { isFavorite: !wasFavorite });
-      push({
-        label: wasFavorite ? t('undo.favoriteRemove') : t('undo.favoriteAdd'),
-        undo: async () => { await api.updateLink(link.id, { isFavorite: wasFavorite }); },
-        redo: async () => { await api.updateLink(link.id, { isFavorite: !wasFavorite }); },
-      });
-      notify(wasFavorite ? t('snackbar.favoriteRemoved') : t('snackbar.favoriteAdded'));
-      await loadCards();
+  const handleToggleFavorite = (link: Link) => {
+    const current = loadFavoriteIds(displayUser.id);
+    const { next, wasFavorite } = toggleLinkFavorite(displayUser.id, current, link.id);
+    setFavoriteIds(next);
+    push({
+      label: wasFavorite ? t('undo.favoriteRemove') : t('undo.favoriteAdd'),
+      undo: async () => {
+        setFavoriteIds(setLinkFavorite(displayUser.id, loadFavoriteIds(displayUser.id), link.id, wasFavorite));
+      },
+      redo: async () => {
+        setFavoriteIds(setLinkFavorite(displayUser.id, loadFavoriteIds(displayUser.id), link.id, !wasFavorite));
+      },
     });
+    notify(wasFavorite ? t('snackbar.favoriteRemoved') : t('snackbar.favoriteAdded'));
   };
 
   const handleMarkAlive = async (link: Link) => {
@@ -546,6 +590,9 @@ export function HomePage() {
       cardTitle,
       cardColor,
     }));
+    void api.recordLinkClick(link.id).catch(() => {
+      // KPI tracking must not block opening the link.
+    });
   };
 
   const handleHistoryOpen = (entry: HistoryEntry) => {
@@ -556,6 +603,7 @@ export function HomePage() {
       cardTitle: entry.cardTitle,
       cardColor: entry.cardColor,
     }));
+    void api.recordLinkClick(entry.linkId).catch(() => {});
     window.open(entry.url, '_blank', 'noopener,noreferrer');
   };
 
@@ -690,12 +738,25 @@ export function HomePage() {
     async (payloads: CreateLinkPayload[], cardId: number, folderId: number | null) => {
       await runAction(async () => {
         const createdIds: number[] = [];
+        const favoriteCreatedIds: number[] = [];
         for (const payload of payloads) {
+          const { isFavorite: markFavorite, ...linkData } = payload;
           const created = (await api.addLink(cardId, withAuthor({
-            ...payload,
+            ...linkData,
             folderId: folderId ?? undefined,
           }))) as Link;
           createdIds.push(created.id);
+          if (markFavorite) favoriteCreatedIds.push(created.id);
+        }
+
+        if (favoriteCreatedIds.length > 0) {
+          setFavoriteIds((prev) => {
+            let next = prev;
+            for (const id of favoriteCreatedIds) {
+              next = setLinkFavorite(displayUser.id, next, id, true);
+            }
+            return next;
+          });
         }
 
         push({
@@ -703,6 +764,7 @@ export function HomePage() {
           undo: async () => {
             for (const id of createdIds) {
               await api.deleteLink(id);
+              setFavoriteIds((prev) => setLinkFavorite(displayUser.id, prev, id, false));
             }
           },
           redo: async () => {
@@ -723,7 +785,7 @@ export function HomePage() {
         await loadCards();
       });
     },
-    [runAction, withAuthor, push, t, notify, loadCards],
+    [runAction, withAuthor, push, t, notify, loadCards, displayUser.id],
   );
 
   const openAddLink = (card: Card, folderId?: number) => {
@@ -766,6 +828,21 @@ export function HomePage() {
   const hasNoCards = !loading && !error && cards.length === 0;
   const hasNoResults = !loading && !error && cards.length > 0 && displayCards.length === 0;
 
+  const applyCollapseToAllCards = useCallback(
+    (collapsed: boolean) => {
+      for (const card of displayCards) {
+        cardCollapsedStateRef.current.set(card.id, collapsed);
+      }
+      setAllCardsExpanded(!collapsed);
+      setCollapseSyncTick((tick) => tick + 1);
+    },
+    [displayCards],
+  );
+
+  const toggleExpandCollapseAll = useCallback(() => {
+    applyCollapseToAllCards(allCardsExpanded);
+  }, [allCardsExpanded, applyCollapseToAllCards]);
+
   const newCardButton = (
     <Button
       variant="contained"
@@ -796,44 +873,48 @@ export function HomePage() {
       />
 
       <Box component="main" sx={{ flexGrow: 1, bgcolor: 'background.default', py: 3 }}>
-        <Container maxWidth="lg">
+        <Container maxWidth={false} sx={{ maxWidth: 1840 }}>
           {!loading && !error && cards.length > 0 && (
-            <FavoritesPanel
-              favorites={favorites}
-              onToggleFavorite={handleToggleFavorite}
-              onLinkOpen={(link) => handleLinkOpen(link, link.cardTitle, link.cardColor)}
-            />
-          )}
-
-          {!loading && !error && history.length > 0 && (
-            <HistoryPanel
-              history={history}
-              onClear={() => setHistory(clearHistory())}
-              onOpen={handleHistoryOpen}
-            />
-          )}
-
-          {!loading && !error && cards.length > 0 && (
-            <>
-              <Box sx={{ mb: 3 }}>
-                <SearchBar
-                  value={searchQuery}
-                  onChange={setSearchQuery}
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', md: '1fr 1.35fr 1fr' },
+                gap: 2,
+                mb: 3,
+                alignItems: 'start',
+              }}
+            >
+              <Box sx={{ minWidth: 0 }}>
+                <FavoritesPanel
+                  favorites={favorites}
+                  onToggleFavorite={handleToggleFavorite}
+                  onLinkOpen={(link) => handleLinkOpen(link, link.cardTitle, link.cardColor)}
+                />
+              </Box>
+              <Box sx={{ minWidth: 0 }}>
+                <SearchFilterPanel
+                  searchQuery={searchQuery}
+                  onSearchChange={setSearchQuery}
                   resultCount={
                     isFiltering
                       ? filteredStats.cards + filteredStats.folders + filteredStats.links
                       : undefined
                   }
+                  filters={filters}
+                  onFiltersChange={setFilters}
+                  cards={sortedCards}
+                  allTags={tagSuggestions}
+                  allAuthors={authorSuggestions}
                 />
               </Box>
-              <FilterBar
-                filters={filters}
-                onChange={setFilters}
-                cards={sortedCards}
-                allTags={tagSuggestions}
-                allAuthors={authorSuggestions}
-              />
-            </>
+              <Box sx={{ minWidth: 0 }}>
+                <HistoryPanel
+                  history={history}
+                  onClear={() => setHistory(clearHistory())}
+                  onOpen={handleHistoryOpen}
+                />
+              </Box>
+            </Box>
           )}
 
           {!loading && !error && cards.length > 0 && (
@@ -896,6 +977,14 @@ export function HomePage() {
                       onClick={() => setImportDialogOpen(true)}
                     >
                       {t('import.button')}
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={allCardsExpanded ? <ExpandLessIcon /> : <UnfoldMoreIcon />}
+                      onClick={toggleExpandCollapseAll}
+                    >
+                      {allCardsExpanded ? t('stats.collapseAll') : t('stats.expandAll')}
                     </Button>
                   </>
                 )}
@@ -979,8 +1068,11 @@ export function HomePage() {
               <Box
                 sx={{
                   display: 'grid',
-                  gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', lg: 'repeat(3, 1fr)' },
+                  // ~340px: drag + icône + ~40 chars titre (body2 ~0.78–0.84rem) + padding carte
+                  // auto-fill → jusqu'à 5 cols sur grand écran, puis 4/3/2/1
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
                   gap: 2.5,
+                  alignItems: 'start',
                 }}
               >
                 {displayCards.map((card) => {
@@ -1011,6 +1103,9 @@ export function HomePage() {
                         onToggleLinkSelection={toggleLinkSelection}
                         onToggleFolderSelection={toggleFolderSelection}
                         onExportLink={(link) => handleExportLinks([link])}
+                        forceExpanded={isFiltering}
+                        collapsedStateRef={cardCollapsedStateRef}
+                        collapseSyncTick={collapseSyncTick}
                       />
                     </CardDropZone>
                   );

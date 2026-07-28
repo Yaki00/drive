@@ -68,7 +68,7 @@ export function FolderDialog({ open, folder, onClose, onSave }: FolderDialogProp
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>{folder ? t('folderDialog.edit') : t('folderDialog.new')}</DialogTitle>
-      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <TextField
           label={t('folderDialog.title')}
           value={form.title}

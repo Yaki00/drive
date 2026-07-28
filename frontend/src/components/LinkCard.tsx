@@ -37,11 +37,15 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { useMemo, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type MutableRefObject } from 'react';
+import { useBookmarksDnd } from '../context/BookmarksDndContext';
 import { useLocale } from '../context/LocaleContext';
 import { BNP_GREEN, getGreenPale } from '../theme';
 import type { TranslationKey } from '../i18n/translations';
 import type { Card as CardType, Folder, Link } from '../types';
+
+const LINK_ACTIONS_RIGHT_ZONE_PX = 104;
+const LINK_ACTIONS_DWELL_MS = 2000;
 
 interface LinkCardProps {
   card: CardType;
@@ -67,6 +71,12 @@ interface LinkCardProps {
   onToggleLinkSelection?: (linkId: number) => void;
   onToggleFolderSelection?: (folderId: number) => void;
   onExportLink?: (link: Link) => void;
+  /** Expand temporaire (ex. recherche) sans écraser l'état manuel collapsed. */
+  forceExpanded?: boolean;
+  /** Persistance de l'état replié user (survit au unmount pendant un filtre/recherche). */
+  collapsedStateRef?: MutableRefObject<Map<number, boolean>>;
+  /** Quand ce compteur change, resync collapsed depuis collapsedStateRef. */
+  collapseSyncTick?: number;
 }
 
 type CardItem =
@@ -228,27 +238,93 @@ function SortableLinkRow({
   onExport?: () => void;
 }) {
   const { t, dateLocale } = useLocale();
+  const { activeDragId } = useBookmarksDnd();
+  const isGlobalDragging = Boolean(activeDragId);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: `link-${link.id}`,
     data: { type: 'link', link },
     disabled: selectionMode,
   });
 
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const dwellTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [hoverRight, setHoverRight] = useState(false);
+  const [dwellReveal, setDwellReveal] = useState(false);
+  const actionsVisible = !selectionMode && !isGlobalDragging && (hoverRight || dwellReveal);
+
+  const setRowNodeRef = (node: HTMLDivElement | null) => {
+    rowRef.current = node;
+    setNodeRef(node);
+  };
+
+  const clearDwellTimer = () => {
+    if (dwellTimerRef.current) {
+      clearTimeout(dwellTimerRef.current);
+      dwellTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => () => clearDwellTimer(), []);
+
+  useEffect(() => {
+    if (!isGlobalDragging) return;
+    clearDwellTimer();
+    setHoverRight(false);
+    setDwellReveal(false);
+  }, [isGlobalDragging]);
+
+  const updateHoverRight = (clientX: number) => {
+    const el = rowRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const next = rect.right - clientX <= LINK_ACTIONS_RIGHT_ZONE_PX;
+    setHoverRight((prev) => (prev === next ? prev : next));
+  };
+
+  const handleRowMouseEnter = (e: MouseEvent<HTMLDivElement>) => {
+    if (selectionMode || isGlobalDragging) return;
+    updateHoverRight(e.clientX);
+    clearDwellTimer();
+    dwellTimerRef.current = setTimeout(() => setDwellReveal(true), LINK_ACTIONS_DWELL_MS);
+  };
+
+  const handleRowMouseMove = (e: MouseEvent<HTMLDivElement>) => {
+    if (selectionMode || isGlobalDragging) return;
+    updateHoverRight(e.clientX);
+  };
+
+  const handleRowMouseLeave = () => {
+    clearDwellTimer();
+    setHoverRight(false);
+    setDwellReveal(false);
+  };
+
   const tooltipText = formatLinkMeta(link, t, dateLocale);
+
+  const dragStyle = {
+    transform: CSS.Transform.toString(transform),
+    // Avoid CSS transitions while dragging — major source of jank with MUI sx.
+    transition: isDragging ? undefined : transition,
+    opacity: isDragging ? 0.35 : 1,
+  };
 
   return (
     <Box
-      ref={setNodeRef}
+      ref={setRowNodeRef}
+      style={dragStyle}
+      onMouseEnter={handleRowMouseEnter}
+      onMouseMove={handleRowMouseMove}
+      onMouseLeave={handleRowMouseLeave}
       sx={{
         display: 'flex',
         alignItems: 'center',
         minHeight: compact ? 32 : 36,
-        opacity: isDragging ? 0.4 : 1,
-        transform: CSS.Transform.toString(transform),
-        transition,
         borderRadius: 0.5,
+        willChange: isDragging ? 'transform' : undefined,
         backgroundColor: link.isDead ? (theme) => `${theme.palette.error.main}18` : undefined,
-        '&:hover': { bgcolor: link.isDead ? (theme) => `${theme.palette.error.main}28` : greenPale },
+        '&:hover': isGlobalDragging
+          ? undefined
+          : { bgcolor: link.isDead ? (theme) => `${theme.palette.error.main}28` : greenPale },
       }}
     >
       <Box
@@ -293,7 +369,7 @@ function SortableLinkRow({
           <IconButton
             size="small"
             component="span"
-            sx={{ p: 0, cursor: 'grab', color: 'text.disabled', flexShrink: 0 }}
+            sx={{ p: 0, cursor: 'grab', color: 'text.disabled', flexShrink: 0, touchAction: 'none' }}
             {...attributes}
             {...listeners}
             onClick={(e) => e.preventDefault()}
@@ -316,21 +392,65 @@ function SortableLinkRow({
         >
           {link.title}
         </Typography>
-        {link.isDead && (
-          <Tooltip title={t('link.deadTooltip')}>
+        {/* Hide meta chips while actions are open to avoid overlap on the right. */}
+        {!actionsVisible && (
+          <>
+            {link.isDead && (
+              <Tooltip title={t('link.deadTooltip')}>
+                <Chip
+                  label={t('link.dead')}
+                  size="small"
+                  color="error"
+                  sx={{ height: 16, fontSize: '0.6rem', flexShrink: 0, display: { xs: 'none', sm: 'flex' } }}
+                />
+              </Tooltip>
+            )}
             <Chip
-              label={t('link.dead')}
+              label={
+                link.environment === 'PRD'
+                  ? t('environment.prd')
+                  : link.environment === 'STG'
+                    ? t('environment.stg')
+                    : t('environment.notDefine')
+              }
               size="small"
-              color="error"
-              sx={{ height: 16, fontSize: '0.6rem', flexShrink: 0, display: { xs: 'none', sm: 'flex' } }}
+              variant="outlined"
+              sx={{
+                height: 16,
+                fontSize: '0.6rem',
+                flexShrink: 0,
+                borderColor: 'divider',
+                color: 'text.secondary',
+                display: { xs: 'none', sm: 'flex' },
+                '& .MuiChip-label': { px: 0.6 },
+              }}
             />
-          </Tooltip>
+            <TagChips tags={link.tags ?? []} />
+            {tooltipText && <InfoTooltip text={tooltipText} />}
+          </>
         )}
-        <TagChips tags={link.tags ?? []} />
-        {tooltipText && <InfoTooltip text={tooltipText} />}
       </Box>
       {!selectionMode && (
-        <Box sx={{ flexShrink: 0, pr: 0.25 }}>
+        <Box
+          data-link-actions
+          sx={{
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            alignSelf: 'stretch',
+            pr: actionsVisible ? 0.25 : 0,
+            pl: actionsVisible ? 0.5 : 0,
+            maxWidth: actionsVisible ? 220 : 0,
+            opacity: actionsVisible ? 1 : 0,
+            overflow: 'hidden',
+            pointerEvents: actionsVisible ? 'auto' : 'none',
+            borderRadius: 1,
+            bgcolor: actionsVisible ? 'action.hover' : 'transparent',
+            transition:
+              'opacity 180ms ease, max-width 180ms ease, padding 180ms ease, background-color 180ms ease',
+          }}
+        >
           <RowActions
             compact={compact}
             onEdit={onEdit}
@@ -389,8 +509,14 @@ function SortableFolderRow({
     data: { type: 'folder-drop', folderId: folder.id },
   });
 
+  const dragStyle = {
+    transform: CSS.Transform.toString(transform),
+    transition: isDragging ? undefined : transition,
+    opacity: isDragging ? 0.35 : 1,
+  };
+
   return (
-    <Box ref={setNodeRef} sx={{ opacity: isDragging ? 0.4 : 1, transform: CSS.Transform.toString(transform), transition }}>
+    <Box ref={setNodeRef} style={dragStyle}>
       <Box
         ref={dropRef}
         sx={{
@@ -425,7 +551,7 @@ function SortableFolderRow({
               sx={{ p: 0, flexShrink: 0 }}
             />
           ) : (
-            <IconButton size="small" sx={{ p: 0, cursor: 'grab', color: 'text.disabled', flexShrink: 0 }} {...attributes} {...listeners} onClick={(e) => e.stopPropagation()}>
+            <IconButton size="small" sx={{ p: 0, cursor: 'grab', color: 'text.disabled', flexShrink: 0, touchAction: 'none' }} {...attributes} {...listeners} onClick={(e) => e.stopPropagation()}>
               <DragIndicatorIcon sx={{ fontSize: 14 }} />
             </IconButton>
           )}
@@ -483,16 +609,36 @@ export function LinkCard({
   onToggleLinkSelection,
   onToggleFolderSelection,
   onExportLink,
+  forceExpanded = false,
+  collapsedStateRef,
+  collapseSyncTick = 0,
 }: LinkCardProps) {
   const theme = useTheme();
   const { t } = useLocale();
   const greenPale = getGreenPale(theme.palette.mode);
   const accentColor = card.color || BNP_GREEN;
 
+  // État ouvert/fermé local à cette carte uniquement (indépendant des autres LinkCard)
+  const [collapsed, setCollapsed] = useState(
+    () => collapsedStateRef?.current.get(card.id) ?? true,
+  );
   const [expandedFolders, setExpandedFolders] = useState<Set<number>>(new Set());
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [moveAnchor, setMoveAnchor] = useState<null | HTMLElement>(null);
   const [movingLinkId, setMovingLinkId] = useState<number | null>(null);
+
+  // Recherche : expand temporaire ; à clear de la query on retrouve `collapsed` user
+  const effectivelyCollapsed = forceExpanded ? false : collapsed;
+
+  useEffect(() => {
+    collapsedStateRef?.current.set(card.id, collapsed);
+  }, [card.id, collapsed, collapsedStateRef]);
+
+  useEffect(() => {
+    if (!collapseSyncTick) return;
+    const next = collapsedStateRef?.current.get(card.id);
+    if (typeof next === 'boolean') setCollapsed(next);
+  }, [collapseSyncTick, card.id, collapsedStateRef]);
 
   const { setNodeRef: rootDropRef } = useDroppable({
     id: `root-drop-${card.id}`,
@@ -552,11 +698,15 @@ export function LinkCard({
     setMoveAnchor(anchor);
   };
 
+  const toggleCollapsed = () => setCollapsed((prev) => !prev);
+
   return (
     <Card
       elevation={0}
       sx={{
-        height: '100%',
+        height: 'auto',
+        alignSelf: 'start',
+        width: '100%',
         display: 'flex',
         flexDirection: 'column',
         border: '1px solid',
@@ -566,9 +716,54 @@ export function LinkCard({
         '&:hover': { boxShadow: '0 4px 16px rgba(0, 150, 90, 0.12)', borderColor: `${accentColor}55` },
       }}
     >
-      <CardContent sx={{ flexGrow: 1, pb: 0.5, pt: 1.5, '&:last-child': { pb: 0.5 } }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: isCompact ? 0.5 : 0.75 }}>
-          <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', minWidth: 0, gap: 0.5 }}>
+      <CardContent
+        sx={{
+          flexGrow: 1,
+          pt: 1.5,
+          pb: effectivelyCollapsed ? 1.5 : 0.5,
+          '&:last-child': { pb: effectivelyCollapsed ? 1.5 : 0.5 },
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: effectivelyCollapsed ? 0 : isCompact ? 0.5 : 0.75 }}>
+          <Box
+            role="button"
+            tabIndex={0}
+            aria-expanded={!effectivelyCollapsed}
+            onClick={toggleCollapsed}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                toggleCollapsed();
+              }
+            }}
+            sx={{
+              flexGrow: 1,
+              display: 'flex',
+              alignItems: 'center',
+              minWidth: 0,
+              gap: 0.5,
+              cursor: 'pointer',
+              borderRadius: 0.5,
+              mr: 0.5,
+              '&:hover': { bgcolor: greenPale },
+            }}
+          >
+            <IconButton
+              size="small"
+              tabIndex={-1}
+              aria-hidden
+              sx={{ p: 0.25, color: 'text.secondary', flexShrink: 0 }}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleCollapsed();
+              }}
+            >
+              {effectivelyCollapsed ? (
+                <ChevronRightIcon sx={{ fontSize: 20 }} />
+              ) : (
+                <ExpandMoreIcon sx={{ fontSize: 20 }} />
+              )}
+            </IconButton>
             <Typography variant="subtitle1" component="h2" sx={{ fontWeight: 600, lineHeight: 1.3 }} noWrap>
               {card.title}
             </Typography>
@@ -606,131 +801,134 @@ export function LinkCard({
           </Tooltip>
         </Box>
 
-        <Box ref={rootDropRef}>
-          <SortableContext items={rootSortableIds} strategy={verticalListSortingStrategy}>
-            <List dense disablePadding sx={{ display: 'flex', flexDirection: 'column', gap: 0.15 }}>
-              {rootItems.length === 0 ? (
-                <Typography variant="caption" color="text.secondary" sx={{ py: 1.5, textAlign: 'center', fontStyle: 'italic', display: 'block' }}>
-                  {t('card.empty')}
-                </Typography>
-              ) : (
-                rootItems.map((item) =>
-                  item.kind === 'folder' ? (
-                    <SortableFolderRow
-                      key={`folder-${item.data.id}`}
-                      folder={item.data}
-                      accentColor={accentColor}
-                      greenPale={greenPale}
-                      compact={isCompact}
-                      isExpanded={expandedFolders.has(item.data.id)}
-                      onToggle={() =>
-                        setExpandedFolders((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(item.data.id)) next.delete(item.data.id);
-                          else next.add(item.data.id);
-                          return next;
-                        })
-                      }
-                      onEdit={() => onEditFolder(item.data)}
-                      onDelete={() => onDeleteFolder(item.data)}
-                      onAddLink={() => onAddLink(card, item.data.id)}
-                      selectionMode={selectionMode}
-                      selected={selectedFolderIds?.has(item.data.id)}
-                      onToggleSelection={() => onToggleFolderSelection?.(item.data.id)}
-                    >
-                      <SortableContext items={item.data.links.map((l) => `link-${l.id}`)} strategy={verticalListSortingStrategy}>
-                        <List dense disablePadding sx={{ pl: 2.5 }}>
-                          {item.data.links.length === 0 ? (
-                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', py: 0.75, pl: 1, fontStyle: 'italic' }}>
-                              {t('card.folderEmpty')}
-                            </Typography>
-                          ) : (
-                            [...item.data.links]
-                              .sort((a, b) => a.sortOrder - b.sortOrder)
-                              .map((link) => (
-                                <SortableLinkRow
-                                  key={link.id}
-                                  link={link}
-                                  accentColor={accentColor}
-                                  greenPale={greenPale}
-                                  compact={isCompact}
-                                  onEdit={() => onEditLink(link)}
-                                  onDelete={() => onDeleteLink(link)}
-                                  onFavorite={() => onToggleFavorite(link)}
-                                  onMove={(anchor) => openMoveMenu(link.id, anchor)}
-                                  onMarkAlive={onMarkAlive ? () => onMarkAlive(link) : undefined}
-                                  onLinkOpen={() => onLinkOpen(link)}
-                                  selectionMode={selectionMode}
-                                  selected={selectedLinkIds?.has(link.id)}
-                                  onToggleSelection={() => onToggleLinkSelection?.(link.id)}
-                                  onExport={onExportLink ? () => onExportLink(link) : undefined}
-                                />
-                              ))
-                          )}
-                        </List>
-                      </SortableContext>
-                    </SortableFolderRow>
-                  ) : (
-                    <SortableLinkRow
-                      key={item.data.id}
-                      link={item.data}
-                      accentColor={accentColor}
-                      greenPale={greenPale}
-                      compact={isCompact}
-                      onEdit={() => onEditLink(item.data)}
-                      onDelete={() => onDeleteLink(item.data)}
-                      onFavorite={() => onToggleFavorite(item.data)}
-                      onMove={(anchor) => openMoveMenu(item.data.id, anchor)}
-                      onMarkAlive={onMarkAlive ? () => onMarkAlive(item.data) : undefined}
-                      onLinkOpen={() => onLinkOpen(item.data)}
-                      selectionMode={selectionMode}
-                      selected={selectedLinkIds?.has(item.data.id)}
-                      onToggleSelection={() => onToggleLinkSelection?.(item.data.id)}
-                      onExport={onExportLink ? () => onExportLink(item.data) : undefined}
-                    />
-                  ),
-                )
-              )}
-            </List>
-          </SortableContext>
-        </Box>
+        <Collapse in={!effectivelyCollapsed} timeout="auto" unmountOnExit={false}>
+          <Box ref={rootDropRef}>
+            <SortableContext items={rootSortableIds} strategy={verticalListSortingStrategy}>
+              <List dense disablePadding sx={{ display: 'flex', flexDirection: 'column', gap: 0.15 }}>
+                {rootItems.length === 0 ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ py: 1.5, textAlign: 'center', fontStyle: 'italic', display: 'block' }}>
+                    {t('card.empty')}
+                  </Typography>
+                ) : (
+                  rootItems.map((item) =>
+                    item.kind === 'folder' ? (
+                      <SortableFolderRow
+                        key={`folder-${item.data.id}`}
+                        folder={item.data}
+                        accentColor={accentColor}
+                        greenPale={greenPale}
+                        compact={isCompact}
+                        isExpanded={forceExpanded || expandedFolders.has(item.data.id)}
+                        onToggle={() =>
+                          setExpandedFolders((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(item.data.id)) next.delete(item.data.id);
+                            else next.add(item.data.id);
+                            return next;
+                          })
+                        }
+                        onEdit={() => onEditFolder(item.data)}
+                        onDelete={() => onDeleteFolder(item.data)}
+                        onAddLink={() => onAddLink(card, item.data.id)}
+                        selectionMode={selectionMode}
+                        selected={selectedFolderIds?.has(item.data.id)}
+                        onToggleSelection={() => onToggleFolderSelection?.(item.data.id)}
+                      >
+                        <SortableContext items={item.data.links.map((l) => `link-${l.id}`)} strategy={verticalListSortingStrategy}>
+                          <List dense disablePadding sx={{ pl: 2.5 }}>
+                            {item.data.links.length === 0 ? (
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', py: 0.75, pl: 1, fontStyle: 'italic' }}>
+                                {t('card.folderEmpty')}
+                              </Typography>
+                            ) : (
+                              [...item.data.links]
+                                .sort((a, b) => a.sortOrder - b.sortOrder)
+                                .map((link) => (
+                                  <SortableLinkRow
+                                    key={link.id}
+                                    link={link}
+                                    accentColor={accentColor}
+                                    greenPale={greenPale}
+                                    compact={isCompact}
+                                    onEdit={() => onEditLink(link)}
+                                    onDelete={() => onDeleteLink(link)}
+                                    onFavorite={() => onToggleFavorite(link)}
+                                    onMove={(anchor) => openMoveMenu(link.id, anchor)}
+                                    onMarkAlive={onMarkAlive ? () => onMarkAlive(link) : undefined}
+                                    onLinkOpen={() => onLinkOpen(link)}
+                                    selectionMode={selectionMode}
+                                    selected={selectedLinkIds?.has(link.id)}
+                                    onToggleSelection={() => onToggleLinkSelection?.(link.id)}
+                                    onExport={onExportLink ? () => onExportLink(link) : undefined}
+                                  />
+                                ))
+                            )}
+                          </List>
+                        </SortableContext>
+                      </SortableFolderRow>
+                    ) : (
+                      <SortableLinkRow
+                        key={item.data.id}
+                        link={item.data}
+                        accentColor={accentColor}
+                        greenPale={greenPale}
+                        compact={isCompact}
+                        onEdit={() => onEditLink(item.data)}
+                        onDelete={() => onDeleteLink(item.data)}
+                        onFavorite={() => onToggleFavorite(item.data)}
+                        onMove={(anchor) => openMoveMenu(item.data.id, anchor)}
+                        onMarkAlive={onMarkAlive ? () => onMarkAlive(item.data) : undefined}
+                        onLinkOpen={() => onLinkOpen(item.data)}
+                        selectionMode={selectionMode}
+                        selected={selectedLinkIds?.has(item.data.id)}
+                        onToggleSelection={() => onToggleLinkSelection?.(item.data.id)}
+                        onExport={onExportLink ? () => onExportLink(item.data) : undefined}
+                      />
+                    ),
+                  )
+                )}
+              </List>
+            </SortableContext>
+          </Box>
+
+          <Box sx={{ pt: 0.5, pb: 0.75 }}>
+            <Button
+              size="small"
+              onClick={(e) => setMenuAnchor(e.currentTarget)}
+              sx={{ minWidth: 0, px: 0.5, py: 0.25, color: 'primary.main', fontSize: '0.8rem', fontWeight: 600, '&:hover': { bgcolor: greenPale } }}
+            >
+              <AddIcon sx={{ fontSize: 16, mr: 0.25 }} />
+              {t('card.add')}
+            </Button>
+          </Box>
+        </Collapse>
       </CardContent>
 
-      <Box sx={{ px: 1.5, pb: 1.25, pt: 0.5 }}>
-        <Button
-          size="small"
-          onClick={(e) => setMenuAnchor(e.currentTarget)}
-          sx={{ minWidth: 0, px: 0.5, py: 0.25, color: 'primary.main', fontSize: '0.8rem', fontWeight: 600, '&:hover': { bgcolor: greenPale } }}
-        >
-          <AddIcon sx={{ fontSize: 16, mr: 0.25 }} />
-          {t('card.add')}
-        </Button>
-        <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={() => setMenuAnchor(null)}>
-          <MenuItem onClick={() => { setMenuAnchor(null); onAddLink(card); }}>
-            <LinkIcon sx={{ fontSize: 18, mr: 1.5, color: accentColor }} />
-            {t('card.link')}
+      <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={() => setMenuAnchor(null)}>
+        <MenuItem onClick={() => { setMenuAnchor(null); onAddLink(card); }}>
+          <LinkIcon sx={{ fontSize: 18, mr: 1.5, color: accentColor }} />
+          {t('card.link')}
+        </MenuItem>
+        <MenuItem onClick={() => { setMenuAnchor(null); onAddFolder(card); }}>
+          <FolderOutlinedIcon sx={{ fontSize: 18, mr: 1.5, color: accentColor }} />
+          {t('card.folder')}
+        </MenuItem>
+      </Menu>
+      <Menu anchorEl={moveAnchor} open={Boolean(moveAnchor)} onClose={() => { setMoveAnchor(null); setMovingLinkId(null); }}>
+        {moveTargets.map((target) => (
+          <MenuItem
+            key={`${target.cardId}-${target.folderId ?? 'root'}`}
+            onClick={() => {
+              if (movingLinkId) onMoveLink(movingLinkId, target.cardId, target.folderId);
+              setMoveAnchor(null);
+              setMovingLinkId(null);
+            }}
+          >
+            <DriveFileMoveIcon sx={{ fontSize: 18, mr: 1.5, color: target.color ?? accentColor }} />
+            {target.label}
           </MenuItem>
-          <MenuItem onClick={() => { setMenuAnchor(null); onAddFolder(card); }}>
-            <FolderOutlinedIcon sx={{ fontSize: 18, mr: 1.5, color: accentColor }} />
-            {t('card.folder')}
-          </MenuItem>
-        </Menu>
-        <Menu anchorEl={moveAnchor} open={Boolean(moveAnchor)} onClose={() => { setMoveAnchor(null); setMovingLinkId(null); }}>
-          {moveTargets.map((target) => (
-            <MenuItem
-              key={`${target.cardId}-${target.folderId ?? 'root'}`}
-              onClick={() => {
-                if (movingLinkId) onMoveLink(movingLinkId, target.cardId, target.folderId);
-                setMoveAnchor(null);
-                setMovingLinkId(null);
-              }}
-            >
-              <DriveFileMoveIcon sx={{ fontSize: 18, mr: 1.5, color: target.color ?? accentColor }} />
-              {target.label}
-            </MenuItem>
-          ))}
-        </Menu>
-      </Box>
+        ))}
+      </Menu>
     </Card>
   );
 }

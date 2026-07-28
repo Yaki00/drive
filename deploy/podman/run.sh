@@ -28,4 +28,4 @@ podman run -d \
   "${IMAGE_NAME}:${IMAGE_TAG}"
 
 echo "Application disponible sur http://localhost:${HOST_PORT}"
-echo "Base SQLite : ${DATA_DIR}/drive.db"
+echo "Données JSON : ${DATA_DIR}/drive.json"

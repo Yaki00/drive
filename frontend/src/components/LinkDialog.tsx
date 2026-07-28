@@ -15,7 +15,15 @@ import {
 } from '@mui/material';
 import { useEffect, useMemo, useState } from 'react';
 import { useLocale } from '../context/LocaleContext';
-import type { Card, CreateLinkPayload, Link } from '../types';
+import type { TranslationKey } from '../i18n/translations';
+import {
+  DEFAULT_LINK_ENVIRONMENT,
+  LINK_ENVIRONMENTS,
+  type Card,
+  type CreateLinkPayload,
+  type Link,
+  type LinkEnvironment,
+} from '../types';
 import { isValidUrl, normalizeUrl } from '../utils/url';
 import { TagsInput } from './TagsInput';
 
@@ -28,11 +36,18 @@ interface LinkDialogProps {
   tagSuggestions?: string[];
 }
 
+const ENV_LABEL_KEYS: Record<LinkEnvironment, TranslationKey> = {
+  PRD: 'environment.prd',
+  STG: 'environment.stg',
+  'Not define': 'environment.notDefine',
+};
+
 const emptyForm: CreateLinkPayload = {
   title: '',
   url: '',
   description: '',
   tags: [],
+  environment: DEFAULT_LINK_ENVIRONMENT,
   isFavorite: false,
 };
 
@@ -63,6 +78,7 @@ export function LinkDialog({
               url: link.url,
               description: link.description ?? '',
               tags: link.tags ?? [],
+              environment: link.environment ?? DEFAULT_LINK_ENVIRONMENT,
               isFavorite: link.isFavorite,
               cardId: link.cardId,
               folderId: link.folderId,
@@ -76,6 +92,10 @@ export function LinkDialog({
   const handleSubmit = async () => {
     if (!form.title.trim() || !form.url.trim()) {
       setError(t('linkDialog.required'));
+      return;
+    }
+    if (!form.environment || !LINK_ENVIRONMENTS.includes(form.environment)) {
+      setError(t('linkDialog.environmentRequired'));
       return;
     }
 
@@ -94,6 +114,7 @@ export function LinkDialog({
         url: normalizedUrl,
         description: form.description?.trim() || undefined,
         tags: form.tags,
+        environment: form.environment,
         isFavorite: form.isFavorite,
         cardId: form.cardId,
         folderId: form.folderId ?? null,
@@ -109,7 +130,7 @@ export function LinkDialog({
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>{link ? t('linkDialog.edit') : t('linkDialog.add')}</DialogTitle>
-      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <TextField
           label={t('linkDialog.title')}
           value={form.title}
@@ -132,6 +153,22 @@ export function LinkDialog({
           rows={2}
           fullWidth
         />
+        <FormControl fullWidth required>
+          <InputLabel>{t('linkDialog.environment')}</InputLabel>
+          <Select
+            label={t('linkDialog.environment')}
+            value={form.environment}
+            onChange={(e) =>
+              setForm({ ...form, environment: e.target.value as LinkEnvironment })
+            }
+          >
+            {LINK_ENVIRONMENTS.map((env) => (
+              <MenuItem key={env} value={env}>
+                {t(ENV_LABEL_KEYS[env])}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
         {link && cards.length > 0 && (
           <>
             <FormControl fullWidth size="small">

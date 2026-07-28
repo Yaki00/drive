@@ -1,19 +1,17 @@
-import FilterListIcon from '@mui/icons-material/FilterList';
 import {
   Autocomplete,
   Box,
   Chip,
   FormControl,
-  InputLabel,
   MenuItem,
-  Paper,
   Select,
   Switch,
   TextField,
   Typography,
 } from '@mui/material';
 import { useLocale } from '../context/LocaleContext';
-import type { Card } from '../types';
+import type { TranslationKey } from '../i18n/translations';
+import { LINK_ENVIRONMENTS, type Card, type LinkEnvironment } from '../types';
 import type { FilterState } from '../utils/filters';
 
 interface FilterBarProps {
@@ -24,41 +22,51 @@ interface FilterBarProps {
   allAuthors: string[];
 }
 
+const ENV_LABEL_KEYS: Record<LinkEnvironment, TranslationKey> = {
+  PRD: 'environment.prd',
+  STG: 'environment.stg',
+  'Not define': 'environment.notDefine',
+};
+
+function FieldLabel({ children }: { children: string }) {
+  return (
+    <Typography
+      variant="caption"
+      component="label"
+      sx={{
+        display: 'block',
+        mb: 0.5,
+        fontWeight: 600,
+        color: 'text.secondary',
+        lineHeight: 1.3,
+      }}
+    >
+      {children}
+    </Typography>
+  );
+}
+
 export function FilterBar({ filters, onChange, cards, allTags, allAuthors }: FilterBarProps) {
   const { t } = useLocale();
 
   return (
-    <Paper
-      elevation={0}
+    <Box
       sx={{
-        p: 2,
-        mb: 3,
-        border: '1px solid',
-        borderColor: 'divider',
-        borderRadius: 1,
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: 1.5,
+        alignItems: 'end',
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-        <FilterListIcon sx={{ fontSize: 20, color: 'primary.main' }} />
-        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-          {t('filters.title')}
-        </Typography>
-      </Box>
-
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '2fr 1fr 1fr 1fr 1fr 1fr' },
-          gap: 2,
-          alignItems: 'center',
-        }}
-      >
+      <Box sx={{ gridColumn: '1 / -1' }}>
+        <FieldLabel>{t('filters.tags')}</FieldLabel>
         <Autocomplete
           multiple
+          size="small"
           options={allTags}
           value={filters.tags}
           onChange={(_, tags) => onChange({ ...filters, tags })}
-          renderInput={(params) => <TextField {...params} label={t('filters.tags')} size="small" />}
+          renderInput={(params) => <TextField {...params} size="small" />}
           renderValue={(tags, getItemProps) =>
             tags.map((tag, index) => {
               const { key, ...props } = getItemProps({ index });
@@ -66,11 +74,37 @@ export function FilterBar({ filters, onChange, cards, allTags, allAuthors }: Fil
             })
           }
         />
+      </Box>
 
-        <FormControl size="small">
-          <InputLabel>{t('filters.card')}</InputLabel>
+      <Box>
+        <FieldLabel>{t('filters.environment')}</FieldLabel>
+        <FormControl size="small" fullWidth>
           <Select
-            label={t('filters.card')}
+            displayEmpty
+            value={filters.environment ?? ''}
+            onChange={(e) => {
+              const val = String(e.target.value);
+              onChange({
+                ...filters,
+                environment: val === '' ? null : (val as LinkEnvironment),
+              });
+            }}
+          >
+            <MenuItem value="">{t('filters.allEnvironments')}</MenuItem>
+            {LINK_ENVIRONMENTS.map((env) => (
+              <MenuItem key={env} value={env}>
+                {t(ENV_LABEL_KEYS[env])}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Box>
+
+      <Box>
+        <FieldLabel>{t('filters.card')}</FieldLabel>
+        <FormControl size="small" fullWidth>
+          <Select
+            displayEmpty
             value={filters.cardId === null ? '' : String(filters.cardId)}
             onChange={(e) => {
               const val = e.target.value;
@@ -88,11 +122,13 @@ export function FilterBar({ filters, onChange, cards, allTags, allAuthors }: Fil
             ))}
           </Select>
         </FormControl>
+      </Box>
 
-        <FormControl size="small">
-          <InputLabel>{t('filters.addedBy')}</InputLabel>
+      <Box>
+        <FieldLabel>{t('filters.addedBy')}</FieldLabel>
+        <FormControl size="small" fullWidth>
           <Select
-            label={t('filters.addedBy')}
+            displayEmpty
             value={filters.createdBy ?? ''}
             onChange={(e) =>
               onChange({
@@ -109,43 +145,47 @@ export function FilterBar({ filters, onChange, cards, allTags, allAuthors }: Fil
             ))}
           </Select>
         </FormControl>
+      </Box>
 
+      <Box>
+        <FieldLabel>{t('filters.dateFrom')}</FieldLabel>
         <TextField
-          label={t('filters.dateFrom')}
           type="date"
           size="small"
+          fullWidth
           value={filters.dateFrom ?? ''}
           onChange={(e) => onChange({ ...filters, dateFrom: e.target.value || null })}
-          slotProps={{ inputLabel: { shrink: true } }}
         />
+      </Box>
 
+      <Box>
+        <FieldLabel>{t('filters.dateTo')}</FieldLabel>
         <TextField
-          label={t('filters.dateTo')}
           type="date"
           size="small"
+          fullWidth
           value={filters.dateTo ?? ''}
           onChange={(e) => onChange({ ...filters, dateTo: e.target.value || null })}
-          slotProps={{ inputLabel: { shrink: true } }}
         />
-
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Switch
-            checked={filters.favoritesOnly}
-            onChange={(e) => onChange({ ...filters, favoritesOnly: e.target.checked })}
-            size="small"
-          />
-          <Typography variant="body2">{t('filters.favorites')}</Typography>
-        </Box>
-
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Switch
-            checked={filters.deadOnly}
-            onChange={(e) => onChange({ ...filters, deadOnly: e.target.checked })}
-            size="small"
-          />
-          <Typography variant="body2">{t('filters.deadLinks')}</Typography>
-        </Box>
       </Box>
-    </Paper>
+
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minHeight: 40 }}>
+        <Switch
+          checked={filters.favoritesOnly}
+          onChange={(e) => onChange({ ...filters, favoritesOnly: e.target.checked })}
+          size="small"
+        />
+        <Typography variant="body2">{t('filters.favorites')}</Typography>
+      </Box>
+
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minHeight: 40 }}>
+        <Switch
+          checked={filters.deadOnly}
+          onChange={(e) => onChange({ ...filters, deadOnly: e.target.checked })}
+          size="small"
+        />
+        <Typography variant="body2">{t('filters.deadLinks')}</Typography>
+      </Box>
+    </Box>
   );
 }

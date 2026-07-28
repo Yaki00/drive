@@ -2,14 +2,14 @@
 
 Link manager organized as cards, folders and tags.
 
-- **Backend**: NestJS + TypeORM + SQLite (`drive.db`, port **3001**)
+- **Backend**: Node HTTP pur + JSON (`drive.json`, port **3001**) — pas de Nest, pas de TypeScript
 - **Frontend**: React + Vite + MUI (port **5173**)
 
 ## Quick start
 
 ```bash
 # Terminal 1 — API
-cd backend && npm install && npm run start:dev
+cd backend && npm start
 
 # Terminal 2 — UI
 cd frontend && npm install && npm run dev
@@ -26,7 +26,7 @@ In development, the frontend proxies `/api` to the backend (no CORS issues if Vi
 - **Links** — CRUD, tags, favorites, move (card + folder), dead link detection
 - **Search & filters** — tags, card, author, date range, favorites, dead links
 - **Navbar session** — `Logged in as guest - Guest` (display only; no login yet)
-- **Favorites** — dedicated panel
+- **Favorites** — per-user panel & filter (`localStorage` key `bookmarks-favorites:<userId>`; API `isFavorite` is legacy/shared and ignored for UI)
 - **History** — opened links (localStorage)
 - **Undo / Redo** — current session only (`Ctrl+Z` / `Ctrl+Shift+Z`)
 - **Drag & drop** — reorder inside a card, move links across cards
@@ -61,13 +61,13 @@ In development, the frontend proxies `/api` to the backend (no CORS issues if Vi
 |----------|-------------|
 | `VITE_API_URL` | API URL in production build (dev default: `/api`; same-origin prod default: ``) |
 | `PORT` | Backend port (default `3001`) |
-| `SERVE_STATIC` | When `true`, NestJS serves the built frontend (`deploy/podman` sets this) |
-| `DATA_DIR` | Directory for `drive.db` (default `.`; container default `/data`) |
+| `SERVE_STATIC` | When `true`, Node serves the built frontend (`deploy/podman` sets this) |
+| `DATA_DIR` | Directory for `drive.json` (default: monorepo root; container default `/data`) |
 | `CORS_ORIGIN` | Comma-separated allowed origins for cross-origin API access |
 
 ## Podman (offline / no public images)
 
-**Aucun npm sur le serveur** : front, back et dépendances (dont `tslib`) sont dans `deploy/podman/vendor/*.tgz`.
+**Aucun npm sur le serveur** : front et backend Node sont dans `deploy/podman/vendor/*.tgz`.
 
 ```bash
 cd bookmarks
@@ -81,8 +81,8 @@ See [deploy/podman/README.md](deploy/podman/README.md) for details.
 
 ## Notes
 
-- `drive.db` is not committed — it is created on first backend start.
-- Copy `backend/drive.db` to migrate data to another machine.
+- `drive.json` is not committed — it is created on first backend start.
+- Copy `drive.json` to migrate data to another machine.
 
 ## Authentication (not in scope yet)
 

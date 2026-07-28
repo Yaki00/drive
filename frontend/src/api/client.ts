@@ -1,4 +1,5 @@
 import type {
+  ActivityEntry,
   Card,
   CardOrderItem,
   CreateCardPayload,
@@ -6,16 +7,33 @@ import type {
   CreateLinkPayload,
   DeadLinkCheckResult,
   Folder,
+  KpiSnapshot,
+  Link,
   ReorderItem,
 } from '../types';
+import { getAuthorLabel, getDisplayUser } from '../utils/sessionUser';
 
 const API_URL =
   import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? '/api' : '');
 
+function actorHeaders(): Record<string, string> {
+  try {
+    const label = getAuthorLabel(getDisplayUser()).trim();
+    return { 'X-Actor': label || 'guest - Guest' };
+  } catch {
+    // Session missing or broken — still send an actor so mutations are logged.
+    return { 'X-Actor': 'guest - Guest' };
+  }
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
     ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...actorHeaders(),
+      ...(options?.headers ?? {}),
+    },
   });
 
   if (!response.ok) {
@@ -23,7 +41,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     throw new Error(
       Array.isArray(error.message)
         ? error.message.join(', ')
-        : error.message ?? 'Something went wrong',
+        : error.message ?? 'Request failed',
     );
   }
 
@@ -83,6 +101,7 @@ export const api = {
 
   updateLink: (
     linkId: number,
+    /** `isFavorite` is accepted for API compat but UI favorites are per-user in localStorage. */
     data: Partial<CreateLinkPayload & { isFavorite?: boolean; isDead?: boolean; cardId?: number; folderId?: number | null }>,
   ) =>
     request(`/cards/links/${linkId}`, {
@@ -107,4 +126,24 @@ export const api = {
 
   checkDeadLinks: () =>
     request<DeadLinkCheckResult>('/cards/links/check-dead', { method: 'POST' }),
+
+  recordLinkClick: (linkId: number) =>
+    request<{ click: unknown; link: Link }>(`/cards/links/${linkId}/click`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  getKpi: () => request<KpiSnapshot>('/kpi'),
+
+  getActivity: (limit = 200) =>
+    request<ActivityEntry[]>(`/activity?limit=${limit}`),
+
+  revertActivity: (id: number) =>
+    request<ActivityEntry>(`/activity/${id}/revert`, { method: 'POST' }),
+
+  unrevertActivity: (id: number) =>
+    request<ActivityEntry>(`/activity/${id}/unrevert`, { method: 'POST' }),
+
+  clearActivity: () =>
+    request<{ cleared: boolean }>('/activity', { method: 'DELETE' }),
 };

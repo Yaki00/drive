@@ -1,4 +1,5 @@
-import type { Card, CreateLinkPayload, Folder, Link } from '../types';
+import type { Card, CreateLinkPayload, Folder, Link, LinkEnvironment } from '../types';
+import { DEFAULT_LINK_ENVIRONMENT, LINK_ENVIRONMENTS } from '../types';
 import { isValidUrl, normalizeUrl } from './url';
 
 export const LINK_EXPORT_VERSION = 1;
@@ -8,6 +9,7 @@ export interface ExportedLink {
   url: string;
   description?: string | null;
   tags?: string[];
+  environment?: LinkEnvironment;
   isFavorite?: boolean;
   sourceCardTitle?: string;
   sourceFolderTitle?: string | null;
@@ -25,9 +27,17 @@ export interface ParsedImportLink {
   url: string;
   description?: string;
   tags: string[];
+  environment: LinkEnvironment;
   isFavorite: boolean;
   valid: boolean;
   error?: string;
+}
+
+function normalizeEnvironment(value: unknown): LinkEnvironment {
+  if (typeof value === 'string' && LINK_ENVIRONMENTS.includes(value as LinkEnvironment)) {
+    return value as LinkEnvironment;
+  }
+  return DEFAULT_LINK_ENVIRONMENT;
 }
 
 export function findLinkInCards(cards: Card[], linkId: number): Link | undefined {
@@ -77,6 +87,7 @@ export function linkToExported(link: Link, cards: Card[]): ExportedLink {
     url: link.url,
     description: link.description,
     tags: link.tags ?? [],
+    environment: link.environment ?? 'Not define',
     isFavorite: link.isFavorite,
     sourceCardTitle: card?.title,
     sourceFolderTitle: folder?.title ?? null,
@@ -119,6 +130,7 @@ function normalizeRawLink(raw: unknown, index: number): ParsedImportLink {
       title: '',
       url: '',
       tags: [],
+      environment: DEFAULT_LINK_ENVIRONMENT,
       isFavorite: false,
       valid: false,
       error: 'invalidShape',
@@ -136,6 +148,7 @@ function normalizeRawLink(raw: unknown, index: number): ParsedImportLink {
   const tags = Array.isArray(raw.tags)
     ? raw.tags.filter((tag): tag is string => typeof tag === 'string').map((tag) => tag.trim()).filter(Boolean)
     : [];
+  const environment = normalizeEnvironment(raw.environment);
   const isFavorite = raw.isFavorite === true;
 
   if (!title || !url) {
@@ -145,6 +158,7 @@ function normalizeRawLink(raw: unknown, index: number): ParsedImportLink {
       url,
       description,
       tags,
+      environment,
       isFavorite,
       valid: false,
       error: 'missingFields',
@@ -158,6 +172,7 @@ function normalizeRawLink(raw: unknown, index: number): ParsedImportLink {
       url,
       description,
       tags,
+      environment,
       isFavorite,
       valid: false,
       error: 'invalidUrl',
@@ -170,6 +185,7 @@ function normalizeRawLink(raw: unknown, index: number): ParsedImportLink {
     url: normalizeUrl(url),
     description,
     tags,
+    environment,
     isFavorite,
     valid: true,
   };
@@ -202,6 +218,7 @@ export function toCreatePayload(link: ParsedImportLink, createdBy: string): Crea
     url: link.url,
     description: link.description || undefined,
     tags: link.tags,
+    environment: link.environment,
     isFavorite: link.isFavorite,
     createdBy,
   };

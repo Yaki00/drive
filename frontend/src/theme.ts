@@ -94,6 +94,32 @@ export function createAppTheme(mode: PaletteMode) {
         styleOverrides: {
           root: {
             backgroundColor: isDark ? alpha('#FFFFFF', 0.04) : '#FAFBFA',
+            overflow: 'visible',
+          },
+          // MUI v9 NotchedOutline uses top:-5 + overflow:hidden; that clips floating labels
+          notchedOutline: {
+            overflow: 'visible',
+          },
+        },
+      },
+      MuiInputLabel: {
+        styleOverrides: {
+          root: {
+            overflow: 'visible',
+          },
+        },
+      },
+      MuiFormControl: {
+        styleOverrides: {
+          root: {
+            overflow: 'visible',
+          },
+        },
+      },
+      MuiAutocomplete: {
+        styleOverrides: {
+          root: {
+            overflow: 'visible',
           },
         },
       },
@@ -107,6 +133,19 @@ export function createAppTheme(mode: PaletteMode) {
       MuiDialog: {
         styleOverrides: {
           paper: { borderRadius: 4, backgroundImage: 'none' },
+        },
+      },
+      // After DialogTitle, MUI zeroes DialogContent padding-top; outlined labels get clipped
+      MuiDialogContent: {
+        styleOverrides: {
+          root: {
+            paddingTop: '20px',
+            overflowY: 'auto',
+            overflowX: 'visible',
+            '.MuiDialogTitle-root + &': {
+              paddingTop: '20px',
+            },
+          },
         },
       },
       MuiAlert: {

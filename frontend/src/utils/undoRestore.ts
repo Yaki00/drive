@@ -52,6 +52,7 @@ function linkToPayload(link: Link, folderId: number | null): CreateLinkPayload {
     description: link.description ?? undefined,
     folderId: folderId ?? undefined,
     tags: link.tags,
+    environment: link.environment ?? 'Not define',
     isFavorite: link.isFavorite,
     createdBy: link.createdBy ?? undefined,
   };

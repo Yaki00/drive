@@ -1,5 +1,7 @@
 import BookmarkIcon from '@mui/icons-material/Bookmark';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
+import HistoryEduOutlinedIcon from '@mui/icons-material/HistoryEduOutlined';
+import InsightsOutlinedIcon from '@mui/icons-material/InsightsOutlined';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import LoginOutlinedIcon from '@mui/icons-material/LoginOutlined';
 import RedoIcon from '@mui/icons-material/Redo';
@@ -37,6 +39,9 @@ export function Navbar({
   const { t, toggleLocale } = useLocale();
   const isLoginPage = location.pathname === '/login';
   const isHome = location.pathname === '/';
+  const isActivity = location.pathname === '/activity';
+  const isKpi = location.pathname === '/kpi';
+  const showSession = (isHome || isActivity || isKpi) && sessionUser;
 
   return (
     <Box
@@ -92,7 +97,7 @@ export function Navbar({
           </Box>
 
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-            {isHome && sessionUser && (
+            {showSession && (
               <Typography
                 variant="body2"
                 sx={{
@@ -145,6 +150,38 @@ export function Navbar({
                     </Badge>
                   </IconButton>
                 </span>
+              </Tooltip>
+            )}
+
+            {!isLoginPage && (
+              <Tooltip title={t('nav.kpi')}>
+                <IconButton
+                  component={RouterLink}
+                  to="/kpi"
+                  sx={{
+                    color: 'primary.contrastText',
+                    bgcolor: isKpi ? 'rgba(255,255,255,0.18)' : 'transparent',
+                    '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' },
+                  }}
+                >
+                  <InsightsOutlinedIcon />
+                </IconButton>
+              </Tooltip>
+            )}
+
+            {!isLoginPage && (
+              <Tooltip title={t('nav.activity')}>
+                <IconButton
+                  component={RouterLink}
+                  to="/activity"
+                  sx={{
+                    color: 'primary.contrastText',
+                    bgcolor: isActivity ? 'rgba(255,255,255,0.18)' : 'transparent',
+                    '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' },
+                  }}
+                >
+                  <HistoryEduOutlinedIcon />
+                </IconButton>
               </Tooltip>
             )}
 

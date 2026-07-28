@@ -98,6 +98,7 @@ export function ImportLinksDialog({ open, cards, onClose, onImport }: ImportLink
         url: link.url,
         description: link.description || undefined,
         tags: link.tags,
+        environment: link.environment,
         isFavorite: link.isFavorite,
       }));
       await onImport(payloads, cardId, folderId === '' ? null : folderId);
@@ -110,7 +111,7 @@ export function ImportLinksDialog({ open, cards, onClose, onImport }: ImportLink
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>{t('import.title')}</DialogTitle>
-      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <Typography variant="body2" color="text.secondary">
           {t('import.hint')}
         </Typography>

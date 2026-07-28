@@ -1,20 +1,17 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "Node backend for React frontend (no Nest)",
+  "description": "Node HTTP backend for bookmarks (no Nest, no TypeScript)",
   "private": true,
   "license": "UNLICENSED",
   "engines": {
-    "node": "<=16.20.2"
+    "node": ">=16"
   },
   "scripts": {
-    "build": "node -e \"console.log('No build required for node backend')\"",
     "start": "node server/server.js",
     "start:dev": "node server/server.js",
-    "start:debug": "node --inspect server/server.js",
     "start:prod": "node server/server.js",
-    "lint": "echo \"lint skipped for node backend\"",
-    "test": "echo \"Use curl API tests\""
+    "test": "node test/api.test.js && node test/linkChecker.test.js"
   },
   "dependencies": {},
   "devDependencies": {}

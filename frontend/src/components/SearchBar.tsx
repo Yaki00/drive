@@ -4,7 +4,6 @@ import {
   Box,
   IconButton,
   InputAdornment,
-  Paper,
   TextField,
   Typography,
 } from '@mui/material';
@@ -14,22 +13,16 @@ interface SearchBarProps {
   value: string;
   onChange: (value: string) => void;
   resultCount?: number;
+  /** Affiche le compteur même sans texte de recherche (ex. filtres seuls). */
+  showResultCount?: boolean;
 }
 
-export function SearchBar({ value, onChange, resultCount }: SearchBarProps) {
+export function SearchBar({ value, onChange, resultCount, showResultCount }: SearchBarProps) {
   const { t } = useLocale();
+  const displayCount = showResultCount || value.trim().length > 0;
 
   return (
-    <Paper
-      elevation={0}
-      sx={{
-        p: 2,
-        border: '1px solid',
-        borderColor: 'divider',
-        borderRadius: 1,
-        bgcolor: 'background.paper',
-      }}
-    >
+    <Box>
       <TextField
         fullWidth
         value={value}
@@ -59,8 +52,8 @@ export function SearchBar({ value, onChange, resultCount }: SearchBarProps) {
           },
         }}
       />
-      {value.trim() && resultCount !== undefined && (
-        <Box sx={{ mt: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+      {displayCount && resultCount !== undefined && (
+        <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
           <Box sx={{ width: 4, height: 16, bgcolor: 'primary.main', borderRadius: 0.5 }} />
           <Typography variant="caption" color="text.secondary">
             {resultCount === 0
@@ -69,6 +62,6 @@ export function SearchBar({ value, onChange, resultCount }: SearchBarProps) {
           </Typography>
         </Box>
       )}
-    </Paper>
+    </Box>
   );
 }

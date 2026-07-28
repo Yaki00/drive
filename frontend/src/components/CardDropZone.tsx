@@ -17,7 +17,9 @@ export function CardDropZone({ cardId, children }: CardDropZoneProps) {
     <Box
       ref={setNodeRef}
       sx={{
-        height: '100%',
+        height: 'auto',
+        alignSelf: 'start',
+        width: '100%',
         borderRadius: 1,
         outline: isOver ? '2px dashed' : 'none',
         outlineColor: 'primary.main',
