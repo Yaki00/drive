@@ -1,16 +1,37 @@
-# Example LDAP config for bookmarks backend.
-# Copy to backend/ldap.toml and adjust values.
+# Example LDAP config (enterprise TOML shape).
+# Copy to backend/ldap.toml for host / search / groups.
+# Prefer putting secrets in backend/.env (or repo .env):
+#   LDAP_BIND_DN=cn=svc-bookmarks,ou=apps,dc=root
+#   LDAP_BIND_PASSWORD=your-secret
+# Env vars override TOML (placeholders like bind_dn="bind_dn" are OK if .env is set).
 # Or set AUTH_MODE=mock for local login without LDAP (admin/admin, user/user).
 
-host = "ldap.example.com"
-port = 389
-use_ssl = false
+[[servers]]
+host = "eldap-global.cib.echonet"
+port = 636
+use_ssl = true
 start_tls = false
-ssl_skip_verify = true
-# root_ca_cert = "/path/to/ca.pem"
-bind_dn = "cn=service,ou=apps,dc=example,dc=com"
-bind_password = "changeme"
-search_base_dns = ["ou=users,dc=example,dc=com"]
+ssl_skip_verify = false
+root_ca_cert = "./certs/root.cer"
+# Placeholders OK when LDAP_BIND_DN / LDAP_BIND_PASSWORD are in .env
+bind_dn = "bind_dn"
+bind_password = "bind_password"
 search_filter = "(uid=%s)"
-# Optional JSON array:
-# group_mappings = [{"group_dn":"CN=APP_ADMIN","org_role":"Admin"}]
+search_base_dns = ["ou=Internal,ou=Users,dc=root"]
+
+[servers.attributes]
+name = "givenName"
+surname = "sn"
+username = "uid"
+member_of = "memberOf"
+email = "mail"
+
+[[servers.group_mappings]]
+# Application admin group
+group_dn = "cn=parftp_bofinmon_admin,ou=group,ou=PARFTP,ou=Applications,dc=root"
+org_role = "Admin"
+
+[[servers.group_mappings]]
+# Application user group
+group_dn = "cn=parftp_bofinmon_user,ou=group,ou=PARFTP,ou=Applications,dc=root"
+org_role = "User"

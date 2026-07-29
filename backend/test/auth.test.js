@@ -54,6 +54,44 @@ bind_password = "x"
   assert.strictEqual(service.mapGroupToRole(['CN=APP_ADMIN,DC=example']), 'Admin');
   assert.strictEqual(service.mapGroupToRole(['CN=APP_USER,DC=example']), 'User');
   assert.strictEqual(service.mapGroupToRole([]), 'User');
+
+  const enterprise = service.parseToml(`
+[[servers]]
+host = "eldap-global.cib.echonet"
+port = 636
+use_ssl = true
+bind_dn = "cn=svc,dc=root"
+bind_password = "secret"
+search_filter = "(uid=%s)"
+search_base_dns = ["ou=Internal,ou=Users,dc=root"]
+
+[servers.attributes]
+name = "givenName"
+surname = "sn"
+username = "uid"
+member_of = "memberOf"
+
+[[servers.group_mappings]]
+group_dn = "cn=parftp_bofinmon_admin,ou=group,ou=PARFTP,ou=Applications,dc=root"
+org_role = "Admin"
+
+[[servers.group_mappings]]
+group_dn = "cn=parftp_bofinmon_user,ou=group,ou=PARFTP,ou=Applications,dc=root"
+org_role = "User"
+`);
+  assert.strictEqual(enterprise.servers.length, 1);
+  assert.strictEqual(enterprise.servers[0].host, 'eldap-global.cib.echonet');
+  assert.strictEqual(enterprise.servers[0].attributes.username, 'uid');
+  assert.strictEqual(enterprise.servers[0].group_mappings.length, 2);
+  assert.strictEqual(enterprise.servers[0].group_mappings[0].org_role, 'Admin');
+
+  service.config = enterprise;
+  assert.strictEqual(
+    service.mapGroupToRole([
+      'cn=parftp_bofinmon_admin,ou=group,ou=PARFTP,ou=Applications,dc=root',
+    ]),
+    'Admin',
+  );
 }
 
 async function testMockLoginService() {

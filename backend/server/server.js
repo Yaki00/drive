@@ -5,6 +5,11 @@ const { createStore } = require('./store');
 const { createRouter } = require('./router');
 const { createAuthRouter, requireAuth, AuthService } = require('./auth/auth.routes');
 
+loadDotEnv([
+  path.join(__dirname, '..', '.env'),
+  path.join(__dirname, '..', '..', '.env'),
+]);
+
 const PORT = Number(process.env.PORT || 3001);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..');
 const DATA_FILE = path.join(DATA_DIR, 'drive.json');
@@ -169,4 +174,29 @@ function sendFile(filePath, res) {
   const type = MIME[ext] || 'application/octet-stream';
   res.setHeader('Content-Type', type);
   fs.createReadStream(filePath).pipe(res);
+}
+
+/** Minimal dotenv loader (no dependency). Does not overwrite existing env. */
+function loadDotEnv(candidates) {
+  for (const file of candidates) {
+    if (!fs.existsSync(file) || !fs.statSync(file).isFile()) continue;
+    const text = fs.readFileSync(file, 'utf8');
+    for (const line of text.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq <= 0) continue;
+      const key = trimmed.slice(0, eq).trim();
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+      if (Object.prototype.hasOwnProperty.call(process.env, key)) continue;
+      let value = trimmed.slice(eq + 1).trim();
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      process.env[key] = value;
+    }
+  }
 }
