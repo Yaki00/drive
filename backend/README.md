@@ -2,6 +2,8 @@
 
 API bookmarks en Express. Auth LDAP optionnelle (ou mode mock local).
 
+**Runtime requis : Node.js 16.20.2** (aligné avec `.nvmrc` / frontend).
+
 ## Démarrage
 
 ```bash

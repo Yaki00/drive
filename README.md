@@ -4,10 +4,14 @@ Link manager organized as cards, folders and tags.
 
 - **Backend**: Express + JSON (`drive.json`, port **3001**) — auth LDAP optionnelle (JWT)
 - **Frontend**: React + Vite + MUI (port **5173**)
+- **Runtime**: **Node.js 16.20.2** uniquement (voir `.nvmrc`)
 
 ## Quick start
 
 ```bash
+# Utiliser Node 16.20.2 (nvm)
+nvm use
+
 # Terminal 1 — API (mock auth local)
 cd backend && npm install && AUTH_MODE=mock npm start
 
