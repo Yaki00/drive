@@ -94,16 +94,52 @@ app.use((err, _req, res, _next) => {
   res.status(err.status || 500).json({ message: err.message || 'Error' });
 });
 
+process.on('uncaughtException', (err) => {
+  console.error('[server] uncaughtException:', err && err.stack ? err.stack : err);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('[server] unhandledRejection:', err && err.stack ? err.stack : err);
+});
+
 app.listen(PORT, () => {
   console.log(`express backend http://localhost:${PORT}`);
   console.log(`data file: ${DATA_FILE}`);
   console.log(
     `auth: ${authService.isConfigured ? authService.mode || 'ldap' : 'not configured'}`,
   );
+  logLdapStartupHints(authService);
   if (SERVE_STATIC) {
     console.log(`static root: ${STATIC_ROOT}`);
   }
 });
+
+function logLdapStartupHints(service) {
+  if (service.mode === 'mock' || service.mode === 'dev') return;
+  try {
+    const srv = service.config && service.config.servers && service.config.servers[0];
+    if (!srv) {
+      console.warn('auth hint: no LDAP server in ldap.toml');
+      return;
+    }
+    const hasEnvBind = Boolean(
+      process.env.LDAP_BIND_DN && process.env.LDAP_BIND_PASSWORD,
+    );
+    console.log(
+      `ldap: ${srv.host}:${srv.port} ssl=${Boolean(srv.use_ssl)} env_bind=${hasEnvBind}`,
+    );
+    if (srv.root_ca_cert) {
+      const ok = fs.existsSync(srv.root_ca_cert);
+      console.log(`ldap ca: ${srv.root_ca_cert} (${ok ? 'found' : 'MISSING'})`);
+    }
+    if (service.isPlaceholderBind && service.isPlaceholderBind(srv)) {
+      console.warn(
+        'auth hint: bind credentials missing — set LDAP_BIND_DN / LDAP_BIND_PASSWORD in backend/.env',
+      );
+    }
+  } catch (err) {
+    console.warn('auth hint:', err && err.message ? err.message : err);
+  }
+}
 
 function isApiPath(pathname) {
   return (

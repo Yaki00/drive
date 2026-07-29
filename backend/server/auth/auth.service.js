@@ -302,6 +302,10 @@ class AuthService {
     tlsOptions.rejectUnauthorized = !srv.ssl_skip_verify;
 
     const client = ldap.createClient({ url, tlsOptions });
+    // Without this, ldapjs 'error' events kill the Node process on Windows/corp LDAP.
+    client.on('error', (err) => {
+      console.error('LDAP client error:', err && err.message ? err.message : err);
+    });
     if (srv.start_tls) {
       client.starttls(tlsOptions, null, (err) => {
         if (err) console.error('starttls error:', err.message || err);
