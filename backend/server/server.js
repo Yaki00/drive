@@ -9,6 +9,9 @@ loadDotEnv([
   path.join(__dirname, '..', '.env'),
   path.join(__dirname, '..', '..', '.env'),
 ]);
+console.log(
+  `[${new Date().toISOString()}] [server] dotenv loaded, AUTH_MODE=${process.env.AUTH_MODE || '(empty)'} LDAP_BIND_DN=${process.env.LDAP_BIND_DN ? 'set' : 'missing'}`,
+);
 
 const PORT = Number(process.env.PORT || 3001);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..');
@@ -95,10 +98,25 @@ app.use((err, _req, res, _next) => {
 });
 
 process.on('uncaughtException', (err) => {
-  console.error('[server] uncaughtException (kept alive):', err && err.stack ? err.stack : err);
+  console.error(
+    `[${new Date().toISOString()}] [server] uncaughtException (kept alive):`,
+    err && err.stack ? err.stack : err,
+  );
 });
 process.on('unhandledRejection', (err) => {
-  console.error('[server] unhandledRejection (kept alive):', err && err.stack ? err.stack : err);
+  console.error(
+    `[${new Date().toISOString()}] [server] unhandledRejection (kept alive):`,
+    err && err.stack ? err.stack : err,
+  );
+});
+process.on('exit', (code) => {
+  console.error(`[${new Date().toISOString()}] [server] process exit code=${code}`);
+});
+process.on('SIGTERM', () => {
+  console.error(`[${new Date().toISOString()}] [server] SIGTERM received`);
+});
+process.on('SIGINT', () => {
+  console.error(`[${new Date().toISOString()}] [server] SIGINT received`);
 });
 
 app.listen(PORT, '0.0.0.0', () => {
@@ -111,7 +129,8 @@ app.listen(PORT, '0.0.0.0', () => {
   if (SERVE_STATIC) {
     console.log(`static root: ${STATIC_ROOT}`);
   }
-  console.log('backend ready — leave this window open, then open http://localhost:3001/auth/diagnose');
+  console.log('backend ready — leave this window open');
+  console.log(`diagnose: http://localhost:${PORT}/auth/diagnose`);
 });
 
 // Prevent some Windows terminals from closing the process when stdin ends.
