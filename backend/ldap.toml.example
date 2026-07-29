@@ -1,0 +1,16 @@
+# Example LDAP config for bookmarks backend.
+# Copy to backend/ldap.toml and adjust values.
+# Or set AUTH_MODE=mock for local login without LDAP (admin/admin, user/user).
+
+host = "ldap.example.com"
+port = 389
+use_ssl = false
+start_tls = false
+ssl_skip_verify = true
+# root_ca_cert = "/path/to/ca.pem"
+bind_dn = "cn=service,ou=apps,dc=example,dc=com"
+bind_password = "changeme"
+search_base_dns = ["ou=users,dc=example,dc=com"]
+search_filter = "(uid=%s)"
+# Optional JSON array:
+# group_mappings = [{"group_dn":"CN=APP_ADMIN","org_role":"Admin"}]

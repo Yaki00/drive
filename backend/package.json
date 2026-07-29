@@ -1,7 +1,7 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "Node HTTP backend for bookmarks (no Nest, no TypeScript)",
+  "description": "Express backend for bookmarks with optional LDAP auth",
   "private": true,
   "license": "UNLICENSED",
   "engines": {
@@ -9,10 +9,14 @@
   },
   "scripts": {
     "start": "node server/server.js",
-    "start:dev": "node server/server.js",
+    "start:dev": "AUTH_MODE=mock node server/server.js",
     "start:prod": "node server/server.js",
-    "test": "node test/api.test.js && node test/linkChecker.test.js"
+    "test": "node test/api.test.js && node test/linkChecker.test.js && node test/auth.test.js"
   },
-  "dependencies": {},
+  "dependencies": {
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "ldapjs": "^3.0.7"
+  },
   "devDependencies": {}
 }

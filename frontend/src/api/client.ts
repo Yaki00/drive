@@ -11,19 +11,22 @@ import type {
   Link,
   ReorderItem,
 } from '../types';
-import { getAuthorLabel, getDisplayUser } from '../utils/sessionUser';
+import { getAuthorLabel, getAuthToken, getDisplayUser } from '../utils/sessionUser';
 
 const API_URL =
   import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? '/api' : '');
 
 function actorHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
   try {
     const label = getAuthorLabel(getDisplayUser()).trim();
-    return { 'X-Actor': label || 'guest - Guest' };
+    headers['X-Actor'] = label || 'guest - Guest';
   } catch {
-    // Session missing or broken — still send an actor so mutations are logged.
-    return { 'X-Actor': 'guest - Guest' };
+    headers['X-Actor'] = 'guest - Guest';
   }
+  const token = getAuthToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -146,4 +149,20 @@ export const api = {
 
   clearActivity: () =>
     request<{ cleared: boolean }>('/activity', { method: 'DELETE' }),
+
+  login: (username: string, password: string) =>
+    request<{
+      token: string;
+      role: string;
+      user: { id: string; fullName: string; role: string };
+    }>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    }),
+
+  authStatus: () =>
+    request<{ configured: boolean; mode: string }>('/auth/status'),
+
+  me: () =>
+    request<{ user: { id: string; fullName: string; role: string } }>('/auth/me'),
 };

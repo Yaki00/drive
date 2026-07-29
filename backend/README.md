@@ -1,43 +1,78 @@
-# Backend — Node HTTP
+# Backend — Express + LDAP
 
-API bookmarks en Node pur (pas de Nest, pas de TypeScript, zéro dépendance npm).
+API bookmarks en Express. Auth LDAP optionnelle (ou mode mock local).
 
 ## Démarrage
 
 ```bash
 cd backend
-npm start
+npm install
+AUTH_MODE=mock npm start
 ```
 
 Écoute sur [http://localhost:3001](http://localhost:3001).  
 Données : `drive.json` à la racine du monorepo (ou `DATA_DIR`).
 
-## Favoris (`isFavorite`)
+### Auth locale (sans LDAP)
 
-Le champ `isFavorite` sur chaque link dans `drive.json` est **legacy / partagé** : l’UI ne s’en sert plus pour le panneau Favoris ni le filtre. Les favoris sont **par utilisateur** côté frontend (`localStorage` : `bookmarks-favorites:<userId>`). L’API accepte encore `isFavorite` en create/update pour compat (export/import, extension), mais ce n’est plus la source de vérité UI.
+```bash
+AUTH_MODE=mock npm start
+```
 
-## Scripts
+Comptes mock : `admin`/`admin` (Admin), `user`/`user`, `guest`/`guest`.
 
-| Commande | Description |
-|----------|-------------|
-| `npm start` | Lance l’API |
-| `npm test` | Tests API (serveur déjà lancé, ou via script) |
+### Auth LDAP
+
+1. Copier `ldap.toml.example` → `ldap.toml`
+2. Renseigner host / bind / search
+3. Lancer sans `AUTH_MODE=mock` (ou `AUTH_MODE=ldap`)
+
+```bash
+JWT_SECRET=change-me npm start
+```
+
+## Routes auth
+
+| Méthode | Chemin | Description |
+|---------|--------|-------------|
+| `GET` | `/auth/status` | Auth configurée ? |
+| `POST` | `/auth/login` | `{ username, password }` → `{ token, role, user }` |
+| `GET` | `/auth/me` | Profil JWT (`Authorization: Bearer …`) |
+
+Préfixe `/api/auth/*` aussi accepté.
 
 ## Variables d’environnement
 
 | Variable | Défaut | Description |
 |----------|--------|-------------|
 | `PORT` | `3001` | Port d’écoute |
-| `DATA_DIR` | racine du monorepo | Dossier de `drive.json` |
+| `DATA_DIR` | racine monorepo | Dossier de `drive.json` |
+| `AUTH_MODE` | — | `mock` / `dev` / vide (LDAP via `ldap.toml`) |
+| `LDAP_TOML` | `backend/ldap.toml` | Chemin config LDAP |
+| `JWT_SECRET` | `secret` | Secret JWT |
+| `JWT_EXPIRES_IN` | `8h` | Durée du token |
+| `AUTH_REQUIRED` | `false` | Si `true`, JWT obligatoire sur l’API |
 | `SERVE_STATIC` | `false` | Sert le frontend depuis `public/` |
-| `STATIC_ROOT` | `backend/public` | Racine des fichiers statiques |
-| `CORS_ORIGIN` | — | Origines CORS supplémentaires (virgules) |
+| `CORS_ORIGIN` | — | Origines CORS supplémentaires |
+
+## Scripts
+
+| Commande | Description |
+|----------|-------------|
+| `npm start` | Lance l’API |
+| `npm run start:dev` | Lance en `AUTH_MODE=mock` |
+| `npm test` | Tests API + linkChecker + auth |
 
 ## Fichiers
 
 ```
 server/
-  server.js   # HTTP + CORS + static optionnel
-  router.js   # Routes /cards et /health
-  store.js    # Persistance JSON
+  server.js              # Express + CORS + static
+  router.js              # API cards / activity / kpi
+  store.js
+  linkChecker.js
+  auth/
+    auth.service.js      # LDAP + JWT
+    auth.routes.js       # Routes Express /auth
+ldap.toml.example
 ```

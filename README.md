@@ -2,20 +2,20 @@
 
 Link manager organized as cards, folders and tags.
 
-- **Backend**: Node HTTP pur + JSON (`drive.json`, port **3001**) — pas de Nest, pas de TypeScript
+- **Backend**: Express + JSON (`drive.json`, port **3001**) — auth LDAP optionnelle (JWT)
 - **Frontend**: React + Vite + MUI (port **5173**)
 
 ## Quick start
 
 ```bash
-# Terminal 1 — API
-cd backend && npm start
+# Terminal 1 — API (mock auth local)
+cd backend && npm install && AUTH_MODE=mock npm start
 
 # Terminal 2 — UI
 cd frontend && npm install && npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173).
+Open [http://localhost:5173](http://localhost:5173). Login: `/login` (mock: `admin`/`admin` or `user`/`user`).
 
 In development, the frontend proxies `/api` to the backend (no CORS issues if Vite uses another port).
 
@@ -25,7 +25,8 @@ In development, the frontend proxies `/api` to the backend (no CORS issues if Vi
 - **Folders** — nested inside cards
 - **Links** — CRUD, tags, favorites, move (card + folder), dead link detection
 - **Search & filters** — tags, card, author, date range, favorites, dead links
-- **Navbar session** — `Logged in as guest - Guest` (display only; no login yet)
+- **Navbar session** — utilisateur connecté (JWT + `localStorage`)
+- **Login LDAP** — `/login` → `POST /auth/login` (mode `mock` ou `ldap.toml`)
 - **Favorites** — per-user panel & filter (`localStorage` key `bookmarks-favorites:<userId>`; API `isFavorite` is legacy/shared and ignored for UI)
 - **History** — opened links (localStorage)
 - **Undo / Redo** — current session only (`Ctrl+Z` / `Ctrl+Shift+Z`)

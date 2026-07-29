@@ -26,6 +26,7 @@ const en = {
   'login.username': 'Username',
   'login.password': 'Password',
   'login.submit': 'Sign in',
+  'login.failed': 'Sign-in failed',
 
   'filters.title': 'Filters',
   'filters.tags': 'Tags',
@@ -328,6 +329,7 @@ const fr: Record<TranslationKey, string> = {
   'login.username': 'Identifiant',
   'login.password': 'Mot de passe',
   'login.submit': 'Se connecter',
+  'login.failed': 'Échec de la connexion',
 
   'filters.title': 'Filtres',
   'filters.tags': 'Tags',

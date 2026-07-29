@@ -20,8 +20,10 @@ npm ci
 npm run build
 tar czf "$VENDOR_DIR/frontend-dist.tgz" -C "$PROJECT_ROOT/frontend" dist
 
-echo "=== Backend (Node pur, zéro dépendance) ==="
-tar czf "$VENDOR_DIR/backend-server.tgz" -C "$PROJECT_ROOT/backend" server package.json
+echo "=== Backend (Express + deps) ==="
+cd "$PROJECT_ROOT/backend"
+npm ci --omit=dev
+tar czf "$VENDOR_DIR/backend-server.tgz" -C "$PROJECT_ROOT/backend" server package.json package-lock.json node_modules
 
 # Anciennes archives Nest — plus nécessaires
 rm -f "$VENDOR_DIR/backend-dist.tgz" "$VENDOR_DIR/backend-prod-node_modules.tgz"

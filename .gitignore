@@ -3,6 +3,7 @@ dist/
 *.db
 drive.json
 backend/drive.json
+backend/ldap.toml
 .env
 .DS_Store
 deploy/podman/rootfs/
