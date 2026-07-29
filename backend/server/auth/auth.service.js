@@ -482,6 +482,103 @@ class AuthService {
     return 'User';
   }
 
+  async diagnose() {
+    if (this.mode === 'mock' || this.mode === 'dev') {
+      return { ok: true, mode: this.mode, steps: [{ step: 'mock', ok: true }] };
+    }
+
+    const steps = [];
+    let client;
+    try {
+      const srv = this.activeServer;
+      steps.push({
+        step: 'config',
+        ok: true,
+        host: srv.host,
+        port: srv.port,
+        use_ssl: Boolean(srv.use_ssl),
+        search_base_dns: srv.search_base_dns,
+        bind_dn_set: Boolean(srv.bind_dn && !this.isPlaceholderBind(srv)),
+        ca: srv.root_ca_cert || null,
+      });
+
+      client = this.createLdapClient();
+      steps.push({ step: 'client', ok: true });
+
+      if (srv.bind_dn && !this.isPlaceholderBind(srv)) {
+        await this.bind(client, srv.bind_dn, srv.bind_password || '');
+        steps.push({ step: 'service_bind', ok: true });
+      } else {
+        steps.push({ step: 'service_bind', ok: false, error: 'missing bind credentials' });
+        return { ok: false, steps };
+      }
+
+      const base = Array.isArray(srv.search_base_dns) ? srv.search_base_dns[0] : null;
+      if (base) {
+        await new Promise((resolve, reject) => {
+          client.search(
+            String(base).trim(),
+            { scope: 'base', filter: '(objectClass=*)', attributes: ['dn'], sizeLimit: 1 },
+            (err, res) => {
+              if (err) return reject(err);
+              res.on('error', reject);
+              res.on('end', resolve);
+              res.on('searchEntry', () => {});
+            },
+          );
+        });
+        steps.push({ step: 'search_base', ok: true, base });
+      }
+
+      return { ok: true, steps };
+    } catch (err) {
+      steps.push({
+        step: 'error',
+        ok: false,
+        error: formatLdapErr(err),
+        code: err && err.code,
+        name: err && err.name,
+      });
+      return { ok: false, steps };
+    } finally {
+      this.destroyClient(client);
+    }
+  }
+
+  buildUserDnCandidates(username) {
+    const srv = this.activeServer;
+    const candidates = [];
+    const template =
+      process.env.LDAP_USER_DN_TEMPLATE ||
+      srv.user_dn_template ||
+      '';
+    if (template && template.includes('%s')) {
+      candidates.push(template.replace('%s', escapeLdapDnValue(username)));
+    }
+
+    const filterAttr = (srv.attributes && srv.attributes.username) || 'uid';
+    for (const base of srv.search_base_dns || []) {
+      const cleanBase = String(base || '')
+        .replace(/^"+|"+$/g, '')
+        .trim();
+      if (!cleanBase) continue;
+      candidates.push(`${filterAttr}=${escapeLdapDnValue(username)},${cleanBase}`);
+    }
+    return [...new Set(candidates)];
+  }
+
+  async resolveUserDn(client, username) {
+    try {
+      return await this.searchUser(client, username);
+    } catch (searchErr) {
+      console.error('LDAP search failed, trying direct DN bind fallback:', formatLdapErr(searchErr));
+      const candidates = this.buildUserDnCandidates(username);
+      if (candidates.length === 0) throw searchErr;
+      // Return first candidate — caller will verify with user password bind.
+      return { userDn: candidates[0], displayName: username, dnCandidates: candidates };
+    }
+  }
+
   async validateUser(username, password) {
     const cleanUsername =
       typeof username === 'string' ? username.replace(/^"+|"+$/g, '').trim() : '';
@@ -518,18 +615,38 @@ class AuthService {
         console.log('LDAP: service bind ok');
       }
 
-      console.log(`LDAP: searching user "${cleanUsername}"…`);
-      const { userDn, displayName } = await this.searchUser(client, cleanUsername);
-      const bindDn = typeof userDn === 'string' ? userDn : String(userDn);
-      console.log(`LDAP: user found, binding as ${bindDn}`);
-      await this.bind(client, bindDn, cleanPassword);
-      console.log('LDAP: user bind ok');
+      console.log(`LDAP: resolving user "${cleanUsername}"…`);
+      const resolved = await this.resolveUserDn(client, cleanUsername);
+      const candidates =
+        resolved.dnCandidates && resolved.dnCandidates.length > 0
+          ? resolved.dnCandidates
+          : [resolved.userDn];
+
+      let bindDn = null;
+      let displayName = resolved.displayName || cleanUsername;
+      let lastBindErr = null;
+      for (const candidate of candidates) {
+        try {
+          console.log(`LDAP: user bind try ${candidate}`);
+          await this.bind(client, candidate, cleanPassword);
+          bindDn = candidate;
+          console.log('LDAP: user bind ok');
+          break;
+        } catch (bindErr) {
+          lastBindErr = bindErr;
+          console.error(`LDAP: user bind failed for ${candidate}:`, formatLdapErr(bindErr));
+        }
+      }
+      if (!bindDn) throw lastBindErr || new Error('Authentication failed');
 
       let groups = [];
       try {
+        // Re-bind as service account before group read if possible (user bind may lack rights).
+        if (srv.bind_dn && !this.isPlaceholderBind(srv)) {
+          await this.bind(client, srv.bind_dn, srv.bind_password || '');
+        }
         groups = await this.getUserGroups(client, bindDn);
       } catch (groupErr) {
-        // Group lookup must not kill login if memberOf is restricted.
         console.error('LDAP groups lookup failed:', formatLdapErr(groupErr));
       }
       const role = this.mapGroupToRole(groups);
@@ -633,6 +750,11 @@ function formatLdapErr(err) {
 
 function escapeLdapFilterValue(value) {
   return String(value).replace(/([\\*()])/g, '\\$1');
+}
+
+function escapeLdapDnValue(value) {
+  // Minimal DN value escape for uid=... construction.
+  return String(value).replace(/([,\\#+<>;"=])/g, '\\$1');
 }
 
 /** ldapjs@3 exposes entry.pojo; older code used entry.object. */

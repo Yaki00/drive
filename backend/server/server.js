@@ -101,7 +101,7 @@ process.on('unhandledRejection', (err) => {
   console.error('[server] unhandledRejection (kept alive):', err && err.stack ? err.stack : err);
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`express backend http://localhost:${PORT}`);
   console.log(`data file: ${DATA_FILE}`);
   console.log(
@@ -111,7 +111,17 @@ app.listen(PORT, () => {
   if (SERVE_STATIC) {
     console.log(`static root: ${STATIC_ROOT}`);
   }
+  console.log('backend ready — leave this window open, then open http://localhost:3001/auth/diagnose');
 });
+
+// Prevent some Windows terminals from closing the process when stdin ends.
+if (process.stdin && typeof process.stdin.resume === 'function') {
+  try {
+    process.stdin.resume();
+  } catch {
+    // ignore
+  }
+}
 
 function logLdapStartupHints(service) {
   if (service.mode === 'mock' || service.mode === 'dev') return;

@@ -11,6 +11,19 @@ function createAuthRouter(authService = new AuthService()) {
     });
   });
 
+  /** Safe connectivity check — does not crash the process. */
+  router.get('/diagnose', async (_req, res) => {
+    try {
+      const report = await authService.diagnose();
+      return res.status(report.ok ? 200 : 500).json(report);
+    } catch (err) {
+      return res.status(500).json({
+        ok: false,
+        message: err.message || String(err),
+      });
+    }
+  });
+
   router.post('/login', async (req, res) => {
     try {
       if (!authService.isConfigured) {
