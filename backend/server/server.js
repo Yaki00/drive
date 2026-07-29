@@ -95,10 +95,10 @@ app.use((err, _req, res, _next) => {
 });
 
 process.on('uncaughtException', (err) => {
-  console.error('[server] uncaughtException:', err && err.stack ? err.stack : err);
+  console.error('[server] uncaughtException (kept alive):', err && err.stack ? err.stack : err);
 });
 process.on('unhandledRejection', (err) => {
-  console.error('[server] unhandledRejection:', err && err.stack ? err.stack : err);
+  console.error('[server] unhandledRejection (kept alive):', err && err.stack ? err.stack : err);
 });
 
 app.listen(PORT, () => {

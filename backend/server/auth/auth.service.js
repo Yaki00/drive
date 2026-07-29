@@ -291,27 +291,59 @@ class AuthService {
     const srv = this.activeServer;
     const protocol = srv.use_ssl ? 'ldaps' : 'ldap';
     const url = `${protocol}://${srv.host}:${srv.port}`;
-    const tlsOptions = {};
+    const tlsOptions = {
+      // Needed for SNI on many corporate LDAPS endpoints.
+      servername: srv.host,
+      rejectUnauthorized: !srv.ssl_skip_verify,
+    };
 
     if (srv.root_ca_cert) {
       if (!fs.existsSync(srv.root_ca_cert)) {
         throw new Error(`root_ca_cert introuvable: ${srv.root_ca_cert}`);
       }
-      tlsOptions.ca = fs.readFileSync(srv.root_ca_cert);
+      tlsOptions.ca = loadCaCertificates(srv.root_ca_cert);
     }
-    tlsOptions.rejectUnauthorized = !srv.ssl_skip_verify;
 
-    const client = ldap.createClient({ url, tlsOptions });
-    // Without this, ldapjs 'error' events kill the Node process on Windows/corp LDAP.
-    client.on('error', (err) => {
-      console.error('LDAP client error:', err && err.message ? err.message : err);
+    const client = ldap.createClient({
+      url,
+      tlsOptions,
+      reconnect: false,
+      connectTimeout: Number(process.env.LDAP_CONNECT_TIMEOUT_MS || 10000),
+      timeout: Number(process.env.LDAP_TIMEOUT_MS || 15000),
     });
+
+    // Without listeners, ldapjs kills the Node process on socket/TLS errors.
+    const swallow = (err) => {
+      console.error('LDAP client error:', formatLdapErr(err));
+    };
+    client.on('error', swallow);
+    client.on('connectError', swallow);
+    client.on('timeout', swallow);
+    client.on('resultError', swallow);
+
     if (srv.start_tls) {
       client.starttls(tlsOptions, null, (err) => {
-        if (err) console.error('starttls error:', err.message || err);
+        if (err) console.error('starttls error:', formatLdapErr(err));
       });
     }
     return client;
+  }
+
+  destroyClient(client) {
+    if (!client) return;
+    try {
+      if (typeof client.destroy === 'function') {
+        client.destroy();
+        return;
+      }
+    } catch (err) {
+      console.error('LDAP destroy error:', formatLdapErr(err));
+    }
+    try {
+      client.unbind(() => {});
+    } catch {
+      // ignore
+    }
   }
 
   bind(client, dn, password) {
@@ -326,14 +358,15 @@ class AuthService {
       throw new Error('search_base_dns est vide ou mal formaté');
     }
 
-    let base = srv.search_base_dns[0];
-    if (typeof base === 'string') {
-      base = base
-        .replace(/^\$+/g, '')
-        .replace(/\$+$/g, '')
-        .replace(/^"+|"+$/g, '')
-        .trim();
-    }
+    const bases = srv.search_base_dns
+      .map((base) =>
+        String(base || '')
+          .replace(/^\$+/g, '')
+          .replace(/\$+$/g, '')
+          .replace(/^"+|"+$/g, '')
+          .trim(),
+      )
+      .filter(Boolean);
 
     const filterAttr = (srv.attributes && srv.attributes.username) || 'uid';
     const nameAttr = (srv.attributes && srv.attributes.name) || 'givenName';
@@ -341,28 +374,48 @@ class AuthService {
     const memberAttr = (srv.attributes && srv.attributes.member_of) || 'memberOf';
 
     const filterTemplate = String(srv.search_filter || `(${filterAttr}=%s)`);
-    const filter = filterTemplate.replace('%s', username);
+    const filter = filterTemplate.replace('%s', escapeLdapFilterValue(username));
     const opts = {
       filter,
       scope: 'sub',
-      attributes: ['dn', memberAttr, 'cn', 'displayName', nameAttr, surnameAttr, 'mail'],
+      attributes: [memberAttr, 'cn', 'displayName', nameAttr, surnameAttr, 'mail'],
     };
 
+    let lastErr = null;
+    for (const base of bases) {
+      try {
+        return await this.searchUserInBase(client, base, opts, nameAttr, surnameAttr, username);
+      } catch (err) {
+        lastErr = err;
+        console.error(`LDAP search failed on base "${base}":`, formatLdapErr(err));
+      }
+    }
+    throw lastErr || new Error(`Utilisateur ${username} introuvable`);
+  }
+
+  searchUserInBase(client, base, opts, nameAttr, surnameAttr, username) {
     return new Promise((resolve, reject) => {
       let userDn = null;
       let displayName = null;
+      let settled = false;
+      const finish = (err, value) => {
+        if (settled) return;
+        settled = true;
+        if (err) reject(err);
+        else resolve(value);
+      };
 
       client.search(base, opts, (err, res) => {
-        if (err) return reject(err);
+        if (err) return finish(err);
 
         res.on('searchEntry', (entry) => {
-          const object = entry.object || {};
-          const dn = object.dn || entry.dn;
+          const object = ldapEntryToObject(entry);
+          const dn = object.dn;
           if (!dn) {
-            console.warn('Entrée LDAP sans DN :', entry);
+            console.warn('Entrée LDAP sans DN');
             return;
           }
-          userDn = typeof dn === 'string' ? dn : String(dn);
+          userDn = dn;
           displayName =
             object.displayName ||
             object.cn ||
@@ -370,13 +423,13 @@ class AuthService {
             null;
         });
 
-        res.on('error', (searchErr) => reject(searchErr));
+        res.on('error', (searchErr) => finish(searchErr));
         res.on('end', () => {
           if (!userDn) {
-            reject(new Error(`Utilisateur ${username} introuvable`));
+            finish(new Error(`Utilisateur ${username} introuvable`));
             return;
           }
-          resolve({ userDn, displayName });
+          finish(null, { userDn, displayName });
         });
       });
     });
@@ -388,18 +441,26 @@ class AuthService {
     const opts = { scope: 'base', attributes: [memberAttr] };
     return new Promise((resolve, reject) => {
       const groups = [];
+      let settled = false;
+      const finish = (err, value) => {
+        if (settled) return;
+        settled = true;
+        if (err) reject(err);
+        else resolve(value);
+      };
+
       client.search(userDn, opts, (err, res) => {
-        if (err) return reject(err);
+        if (err) return finish(err);
 
         res.on('searchEntry', (entry) => {
-          const memberOf = entry.object && entry.object[memberAttr];
+          const object = ldapEntryToObject(entry);
+          const memberOf = object[memberAttr];
           if (Array.isArray(memberOf)) groups.push(...memberOf);
           else if (memberOf) groups.push(memberOf);
-          else console.debug(`Aucun attribut ${memberAttr} trouvé pour l'entrée LDAP`, entry);
         });
 
-        res.on('error', (searchErr) => reject(searchErr));
-        res.on('end', () => resolve(groups));
+        res.on('error', (searchErr) => finish(searchErr));
+        res.on('end', () => finish(null, groups));
       });
     });
   }
@@ -437,10 +498,12 @@ class AuthService {
       return this.validateMockUser(cleanUsername, cleanPassword);
     }
 
-    const client = this.createLdapClient();
+    let client;
     const srv = this.activeServer;
 
     try {
+      client = this.createLdapClient();
+
       if (srv.bind_dn) {
         if (this.isPlaceholderBind(srv)) {
           throw Object.assign(
@@ -450,14 +513,25 @@ class AuthService {
             { status: 500 },
           );
         }
+        console.log('LDAP: binding service account…');
         await this.bind(client, srv.bind_dn, srv.bind_password || '');
+        console.log('LDAP: service bind ok');
       }
 
+      console.log(`LDAP: searching user "${cleanUsername}"…`);
       const { userDn, displayName } = await this.searchUser(client, cleanUsername);
       const bindDn = typeof userDn === 'string' ? userDn : String(userDn);
+      console.log(`LDAP: user found, binding as ${bindDn}`);
       await this.bind(client, bindDn, cleanPassword);
+      console.log('LDAP: user bind ok');
 
-      const groups = await this.getUserGroups(client, bindDn);
+      let groups = [];
+      try {
+        groups = await this.getUserGroups(client, bindDn);
+      } catch (groupErr) {
+        // Group lookup must not kill login if memberOf is restricted.
+        console.error('LDAP groups lookup failed:', formatLdapErr(groupErr));
+      }
       const role = this.mapGroupToRole(groups);
       const secret = process.env.JWT_SECRET || 'secret';
       const token = jwt.sign(
@@ -480,20 +554,14 @@ class AuthService {
         },
       };
     } catch (err) {
-      const detail = err && (err.message || err.name || String(err));
-      console.error('LDAP authentication error:', detail);
-      if (err && err.code != null) console.error('LDAP code:', err.code);
+      console.error('LDAP authentication error:', formatLdapErr(err));
       const failure = new Error(
         err && err.status === 500 ? err.message : 'Authentication failed',
       );
       failure.status = err && err.status === 500 ? 500 : 401;
       throw failure;
     } finally {
-      try {
-        client.unbind();
-      } catch {
-        // ignore
-      }
+      this.destroyClient(client);
     }
   }
 
@@ -553,6 +621,50 @@ function parseEnvBool(value) {
   if (['1', 'true', 'yes', 'on'].includes(v)) return true;
   if (['0', 'false', 'no', 'off'].includes(v)) return false;
   return null;
+}
+
+function formatLdapErr(err) {
+  if (!err) return String(err);
+  const parts = [err.message || err.name || String(err)];
+  if (err.code != null) parts.push(`code=${err.code}`);
+  if (err.name && err.name !== err.message) parts.push(`name=${err.name}`);
+  return parts.join(' | ');
+}
+
+function escapeLdapFilterValue(value) {
+  return String(value).replace(/([\\*()])/g, '\\$1');
+}
+
+/** ldapjs@3 exposes entry.pojo; older code used entry.object. */
+function ldapEntryToObject(entry) {
+  if (!entry) return {};
+  if (entry.object && typeof entry.object === 'object') {
+    const object = { ...entry.object };
+    if (!object.dn && entry.dn) object.dn = String(entry.dn);
+    return object;
+  }
+
+  const pojo = entry.pojo || {};
+  const object = {
+    dn: pojo.objectName || (entry.dn != null ? String(entry.dn) : null),
+  };
+  for (const attr of pojo.attributes || []) {
+    const values = Array.isArray(attr.values) ? attr.values : [];
+    if (!attr.type) continue;
+    object[attr.type] = values.length <= 1 ? values[0] : values;
+  }
+  return object;
+}
+
+/** Accept PEM or binary DER (.cer) CA files. */
+function loadCaCertificates(certPath) {
+  const buf = fs.readFileSync(certPath);
+  const asText = buf.toString('utf8');
+  if (asText.includes('BEGIN CERTIFICATE')) return [buf];
+
+  const b64 = buf.toString('base64').match(/.{1,64}/g) || [];
+  const pem = `-----BEGIN CERTIFICATE-----\n${b64.join('\n')}\n-----END CERTIFICATE-----\n`;
+  return [Buffer.from(pem, 'utf8')];
 }
 
 module.exports = AuthService;
