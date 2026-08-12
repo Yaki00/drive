@@ -1,333 +1,266 @@
-# SSO OIDC — volume de changements & avant / après
+# Tutoriel SSO OIDC + LDAP (BofinLinks)
 
-## Verdict
-
-**Non, il n’y a pas beaucoup de choses à modifier.**  
-Le login LDAP + JWT reste tel quel. Le SSO est **ajouté en parallèle** (bouton + 2–3 routes + un petit service OIDC).
-
-| Zone | Action | Effort |
-|------|--------|--------|
-| LDAP / `POST /auth/login` | **Inchangé** | — |
-| JWT + `requireAuth` + `localStorage` | **Réutilisé** | — |
-| Backend OIDC | **Nouveau** (~80–150 lignes) | moyen |
-| Routes auth | **+2 routes** | faible |
-| Frontend login | **+bouton + callback** | faible |
-| Config `.env` | **+quelques variables** | faible |
-
-Fichiers touchés typiquement : **~5–7**, dont **2–3 nouveaux**. Le reste du projet (upload, liens, etc.) ne bouge pas.
+Guide pas à pas pour **garder le login LDAP** et **ajouter un bouton SSO** (OIDC).
 
 ---
 
-## Endpoints IdP (déjà fournis)
+## Décisions validées
 
-Base : `https://ssologin.bnpparibas.com/affwebservices/CASSO/oidc/PAR-FTP_SSO_BOOKMARK_PRD`
+| Point | Choix |
+|-------|--------|
+| Hôte public | `https://bof…` (tu complètes le FQDN) |
+| Client ID / secret | Variables d’env uniquement (jamais en dur / git) |
+| Rôles Admin / User | Réutiliser `ldap.toml` (`group_mappings`) — **oui, c’est OK** |
+| Front + API | Même serveur |
 
-| Usage | URL |
-|-------|-----|
-| Discovery | `…/.well-known/openid-configuration` |
-| Authorize | `…/authorize` |
-| Token | `…/token` |
-| JWKS | `…/jwks` |
-| UserInfo | `…/userinfo` |
-| Introspect / Revoke | optionnels |
+### Rôles via `ldap.toml` — comment ça marche avec le SSO ?
 
-Scopes visibles côté IdP : `openid`, `profile`.
+Le fichier LDAP ne contient pas des « claims OIDC », mais les **DN de groupes** et le mapping :
 
-À récupérer aussi côté admin IdP (pas dans la capture) :
+```toml
+[servers.attributes]
+username = "uid"
+member_of = "memberOf"
 
-- **Client ID**
-- **Client Secret** (si confidential client)
-- **Redirect URI** enregistrée (ex. `https://ton-frontend/login/sso/callback` ou via backend)
+[[servers.group_mappings]]
+group_dn = "cn=parftp_bofinmon_admin,…"
+org_role = "Admin"
+
+[[servers.group_mappings]]
+group_dn = "cn=parftp_bofinmon_user,…"
+org_role = "User"
+```
+
+**Approche recommandée (hybride) :**
+
+1. SSO OIDC → identité (`uid` / `sub` / `preferred_username`)
+2. Avec cet `uid`, **relecture LDAP** des `memberOf` (code déjà présent)
+3. `mapGroupToRole(groups)` comme pour le login mot de passe
+
+Ainsi **une seule source de vérité** pour les rôles : `ldap.toml`.  
+Pas besoin que l’IdP renvoie les mêmes groupes dans le token.
+
+Si plus tard l’IdP envoie aussi des groupes dans les claims, on pourra s’en servir ; ce n’est pas nécessaire au départ.
 
 ---
 
-## Architecture
+## URLs (placeholder hôte)
 
-### Avant
+Remplace `bof…` par ton hostname complet (ex. `bofinlinks.xxx`).
 
-```
-[Login form] → POST /auth/login → LDAP bind → JWT → localStorage
-```
+| Rôle | URL |
+|------|-----|
+| Home (après login) | `https://bof…/` |
+| Login LDAP + bouton SSO | `https://bof…/login` |
+| Démarre SSO | `https://bof…/auth/oidc/start` |
+| **Redirect URI à déclarer chez l’IdP** | `https://bof…/auth/oidc/callback` |
+| Pose le JWT côté navigateur | `https://bof…/login/sso/callback` |
 
-### Après
-
-```
-[Login form]     → POST /auth/login      → LDAP bind     → JWT → localStorage
-[Bouton SSO]    → GET  /auth/oidc/start → redirect IdP
-[Callback]      → GET  /auth/oidc/callback?code=… → token IdP → claims → même JWT → localStorage
-```
-
-Les deux chemins convergent vers **le même format JWT** (`sub`, `name`, `role`).
+> La Redirect URI IdP = callback **technique** backend.  
+> Ce n’est **pas** la home `/`. Après succès, ton code envoie l’utilisateur vers `/`.
 
 ---
 
-## 1. Config env
+## 0. Parcours utilisateur
 
-### Avant (`.env.example`)
+```
+1. User ouvre          https://bof…/login
+2. Clique « Connexion SSO »
+3. Navigateur →        https://bof…/auth/oidc/start
+4. Backend → IdP       (ssologin…/authorize)
+5. Auth entreprise
+6. IdP →               https://bof…/auth/oidc/callback?code=…&state=…
+7. Backend : code → tokens IdP → uid → LDAP memberOf → rôle → JWT app
+8. Redirect →          https://bof…/login/sso/callback#token=…
+9. Frontend stocke JWT (comme LDAP) → https://bof…/
+```
+
+Formulaire LDAP sur `/login` : inchangé (`POST /auth/login` → JWT → `/`).
+
+---
+
+## Phase A — Côté IdP / serveur (hors code)
+
+### A1 — Enregistrement OIDC (équipe SSO)
+
+À fournir :
+
+- Nom app : BofinLinks (ou nom officiel)
+- **Redirect URI exacte** : `https://bof…/auth/oidc/callback`
+- Scopes : `openid` `profile`
+
+À recevoir (à mettre dans `.env` seulement) :
+
+- `OIDC_CLIENT_ID`
+- `OIDC_CLIENT_SECRET`
+
+### A2 — Réseau depuis le serveur app
+
+```bash
+curl -vk "https://ssologin.bnpparibas.com/affwebservices/CASSO/oidc/PAR-FTP_SSO_BOOKMARK_PRD/.well-known/openid-configuration"
+```
+
+Attendu : JSON discovery. Sinon firewall / proxy sortant HTTPS.
+
+### A3 — HTTPS
+
+La redirect URI en PRD est en général **HTTPS** obligatoire.
+
+---
+
+## Phase B — Config (variables d’env)
+
+Dans le `.env` **du serveur** (pas committé) :
 
 ```env
-# AUTH_MODE=mock
-# JWT_SECRET=change-me
+# --- LDAP (existant) ---
 LDAP_BIND_DN=…
 LDAP_BIND_PASSWORD=…
-```
+JWT_SECRET=…
+# AUTH_REQUIRED=true
 
-### Après
-
-```env
-# AUTH_MODE=mock
-# JWT_SECRET=change-me
-LDAP_BIND_DN=…
-LDAP_BIND_PASSWORD=…
-
-# OIDC SSO (en plus du LDAP)
+# --- OIDC SSO (à remplir) ---
 OIDC_ENABLED=true
 OIDC_ISSUER=https://ssologin.bnpparibas.com/affwebservices/CASSO/oidc/PAR-FTP_SSO_BOOKMARK_PRD
-OIDC_CLIENT_ID=CHANGE_ME
-OIDC_CLIENT_SECRET=CHANGE_ME
-OIDC_REDIRECT_URI=https://TON_HOST/api/auth/oidc/callback
+OIDC_CLIENT_ID=          # tu ajoutes
+OIDC_CLIENT_SECRET=      # tu ajoutes
+OIDC_REDIRECT_URI=https://bof…/auth/oidc/callback
 OIDC_SCOPES=openid profile
-# Optionnel : claim groupes → rôles (si l’IdP les envoie)
-# OIDC_GROUPS_CLAIM=groups
-FRONTEND_URL=https://TON_FRONTEND
+FRONTEND_URL=https://bof…
+```
+
+**Règle :** `OIDC_REDIRECT_URI` = URI déclarée chez l’IdP, caractère pour caractère (hôte `bof…` complet inclus).
+
+Dépendance :
+
+```bash
+cd backend && npm install openid-client
 ```
 
 ---
 
-## 2. Backend — routes
+## Phase C — Backend
 
-Fichier : `backend/server/auth/auth.routes.js`
+### C1 — `oidc.service.js` (nouveau)
 
-### Avant
+1. Discovery ou endpoints issuer
+2. `GET` start → URL authorize + `state`
+3. Callback :
+   - vérifie `state`
+   - échange `code` → tokens (`…/token`)
+   - lit identité (`uid` / `preferred_username` / `sub`)
+   - **LDAP** : récupérer `memberOf` pour cet uid (réutiliser AuthService)
+   - `mapGroupToRole` via `group_mappings` du `ldap.toml`
+   - signer le **même JWT** que le login LDAP
 
-```js
-router.post('/login', async (req, res) => { /* LDAP */ });
-router.get('/me', (req, res) => { /* JWT */ });
-// pas de SSO
+### C2 — Routes (`auth.routes.js`)
+
+| Méthode | Chemin | Action |
+|---------|--------|--------|
+| `POST` | `/auth/login` | **Inchangé** (LDAP) |
+| `GET` | `/auth/oidc/start` | Redirect → IdP |
+| `GET` | `/auth/oidc/callback` | Code → JWT → redirect `#token=` vers `/login/sso/callback` |
+| `GET` | `/auth/me` | **Inchangé** |
+
+Redirect après callback :
+
+```text
+302 → https://bof…/login/sso/callback#token=<JWT>
 ```
 
-### Après (ajouts seulement — `/login` inchangé)
+### C3 — Checklist non-régression
 
-```js
-// LDAP inchangé
-router.post('/login', async (req, res) => { /* … */ });
-
-// Nouveau : démarre le flux OIDC (redirect navigateur vers IdP)
-router.get('/oidc/start', async (req, res) => {
-  if (!authService.isOidcEnabled) {
-    return res.status(503).json({ message: 'OIDC not configured' });
-  }
-  const { url, state } = await authService.createOidcAuthUrl();
-  // stocker state (cookie httpOnly ou mémoire/redis court)
-  res.redirect(url);
-});
-
-// Nouveau : callback IdP → échange code → JWT app → redirect frontend
-router.get('/oidc/callback', async (req, res) => {
-  try {
-    const { code, state } = req.query;
-    const result = await authService.loginWithOidcCode(code, state);
-    // rediriger vers le frontend avec le token (fragment ou cookie court)
-    const front = process.env.FRONTEND_URL || 'http://localhost:5173';
-    return res.redirect(
-      `${front}/login/sso/callback#token=${encodeURIComponent(result.token)}`,
-    );
-  } catch (err) {
-    return res.status(401).json({ message: err.message || 'SSO failed' });
-  }
-});
-
-router.get('/me', (req, res) => { /* inchangé */ });
-```
-
-**Note :** préférer un cookie httpOnly one-shot plutôt qu’un token dans le hash si la sécu interne l’exige ; le hash reste simple pour un premier jet.
+- [ ] Login LDAP OK
+- [ ] JWT SSO accepté par `/auth/me` et `requireAuth`
+- [ ] Rôles identiques LDAP formulaire vs SSO (mêmes groupes `ldap.toml`)
 
 ---
 
-## 3. Backend — service OIDC (nouveau fichier)
+## Phase D — Frontend (même serveur)
 
-### Avant
+### D1 — `LoginPage` (`/login`)
 
-Pas de fichier OIDC. Tout est dans `auth.service.js` (LDAP + JWT).
+- Formulaire LDAP inchangé
+- Bouton SSO → `window.location.href = '/auth/oidc/start'`  
+  (ou `/api/auth/oidc/start` : le backend normalise `/api`)
 
-### Après
+### D2 — Route `/login/sso/callback`
 
-Nouveau fichier léger, ex. `backend/server/auth/oidc.service.js` :
+- Lire `#token`
+- `setAuthToken` + optionnel `GET /auth/me`
+- `navigate('/')` → home `https://bof…/`
 
-```js
-// Pseudo-code du flux Authorization Code
-async createOidcAuthUrl() {
-  const state = randomBytes(16).toString('hex');
-  const url = new URL(`${issuer}/authorize`);
-  url.searchParams.set('client_id', clientId);
-  url.searchParams.set('redirect_uri', redirectUri);
-  url.searchParams.set('response_type', 'code');
-  url.searchParams.set('scope', 'openid profile');
-  url.searchParams.set('state', state);
-  return { url: url.toString(), state };
-}
+### D3 — i18n
 
-async loginWithOidcCode(code, state) {
-  // 1. vérifier state
-  // 2. POST {issuer}/token  (code + client_id + client_secret + redirect_uri)
-  // 3. valider id_token via JWKS ({issuer}/jwks)  — ou userinfo
-  // 4. extraire sub / name / groups
-  // 5. mapGroupToRole (même logique que LDAP si claims groupes)
-  // 6. return { token: signJwt(...), user, role }  // IDENTIQUE au login LDAP
-}
-```
-
-Lib recommandée : `openid-client` (Node) — évite de réécrire discovery / JWKS / validation.
-
-`auth.service.js` LDAP : **quasi intact**. On y ajoute au plus un appel `signJwt` / `mapGroupToRole` réutilisable, ou on duplique le `jwt.sign` (déjà présent).
+`login.sso`, `login.ssoFailed`
 
 ---
 
-## 4. Frontend — page login
+## Phase E — Tests
 
-Fichier : `frontend/src/pages/LoginPage.tsx`
+### E1 — LDAP
 
-### Avant
+`/login` → compte LDAP → home `/` → API 200 avec Bearer
 
-```tsx
-{/* formulaire username / password */}
-<Button type="submit" …>
-  {t('login.submit')}
-</Button>
-```
+### E2 — SSO
 
-### Après
+`/login` → bouton SSO → IdP → callback → home `/` connecté + bon rôle
 
-```tsx
-{/* formulaire LDAP inchangé */}
-<Button type="submit" …>
-  {t('login.submit')}
-</Button>
+### E3 — Erreurs fréquentes
 
-<Divider sx={{ my: 2 }}>ou</Divider>
-
-<Button
-  variant="outlined"
-  fullWidth
-  onClick={() => {
-    // redirect vers le backend qui envoie vers l’IdP
-    window.location.href = `${API_BASE}/auth/oidc/start`;
-  }}
->
-  {t('login.sso')}
-</Button>
-```
+| Symptôme | Cause | Action |
+|----------|--------|--------|
+| `redirect_uri_mismatch` | URI IdP ≠ env | Aligner avec hôte `bof…` final |
+| Timeout ssologin | Réseau serveur | Ouvrir HTTPS sortant |
+| Rôle faux | uid OIDC ≠ uid LDAP / groupes | Vérifier claim uid + lookup LDAP |
+| 503 SSO | env manquante | `OIDC_ENABLED` + id/secret + restart |
 
 ---
 
-## 5. Frontend — callback SSO (nouveau)
+## Endpoints IdP
 
-### Avant
+Base :  
+`https://ssologin.bnpparibas.com/affwebservices/CASSO/oidc/PAR-FTP_SSO_BOOKMARK_PRD`
 
-Aucune route callback.
-
-### Après
-
-Nouvelle page légère `LoginSsoCallbackPage.tsx` + route `/login/sso/callback` :
-
-```tsx
-useEffect(() => {
-  const hash = new URLSearchParams(window.location.hash.slice(1));
-  const token = hash.get('token');
-  if (!token) {
-    setError('SSO token missing');
-    return;
-  }
-  setAuthToken(token);
-  // optionnel : GET /auth/me pour fullName
-  api.me().then((r) => {
-    setSessionUser({ id: r.user.id, fullName: r.user.fullName });
-    navigate('/');
-  });
-}, []);
-```
-
-`sessionUser.ts`, `api.client` Bearer, Navbar : **inchangés**.
+| Usage | Suffixe |
+|-------|---------|
+| Discovery | `/.well-known/openid-configuration` |
+| Authorize | `/authorize` |
+| Token | `/token` |
+| JWKS | `/jwks` |
+| UserInfo | `/userinfo` |
 
 ---
 
-## 6. API client
+## Avant / après (rappel)
 
-Fichier : `frontend/src/api/client.ts`
+### Architecture
 
-### Avant
+**Avant :** form → LDAP → JWT → `/`  
+**Après :** idem **+** bouton SSO → OIDC → uid → LDAP groupes (`ldap.toml`) → même JWT → `/`
 
-```ts
-login: (username, password) => request('/auth/login', { … }),
-authStatus: () => request('/auth/status'),
-me: () => request('/auth/me'),
-```
+### Fichiers
 
-### Après
-
-```ts
-login: (username, password) => request('/auth/login', { … }), // inchangé
-authStatus: () => request('/auth/status'),
-me: () => request('/auth/me'),
-// pas forcément besoin d’une méthode : le bouton fait un redirect navigateur
-```
-
-Optionnel : `authStatus` peut renvoyer `oidc: true` pour masquer le bouton si SSO désactivé.
+| Fichier | Action |
+|---------|--------|
+| `oidc.service.js` | Créer |
+| `auth.routes.js` | +2 routes |
+| `auth.service.js` | Réutiliser lookup groupes + JWT |
+| `.env` / `.env.example` | +`OIDC_*` (valeurs vides / placeholders) |
+| `package.json` | +`openid-client` |
+| `LoginPage.tsx` | +bouton |
+| `LoginSsoCallbackPage.tsx` | Créer |
+| Router + i18n | +route / clés |
+| `ldap.toml` | **Inchangé** (source des rôles) |
 
 ---
 
-## 7. i18n
+## Checklist prod
 
-### Avant
-
-```ts
-'login.submit': 'Se connecter',
-```
-
-### Après
-
-```ts
-'login.submit': 'Se connecter',
-'login.sso': 'Connexion SSO',
-'login.ssoFailed': 'Échec de la connexion SSO',
-```
-
----
-
-## Récap fichiers
-
-| Fichier | Avant → Après |
-|---------|----------------|
-| `auth.routes.js` | +2 routes OIDC |
-| `auth.service.js` | inchangé ou léger export JWT/rôles |
-| `oidc.service.js` | **nouveau** |
-| `.env.example` | +vars OIDC |
-| `LoginPage.tsx` | +bouton SSO |
-| `LoginSsoCallbackPage.tsx` | **nouveau** |
-| router frontend | +1 route |
-| `translations.ts` | +2–3 clés |
-| `package.json` backend | +`openid-client` |
-
-**Ne pas toucher :** logique métier fichiers/liens, middleware JWT existant, stockage token, tests LDAP (sauf ajouts de tests OIDC).
-
----
-
-## Checklist IdP / réseau (hors code)
-
-1. Enregistrer la **Redirect URI** exacte côté CA SSO.
-2. Obtenir **Client ID / Secret**.
-3. Vérifier que le serveur backend peut joindre `ssologin.bnpparibas.com` (souvent réseau interne / proxy).
-4. Regarder un `id_token` / `userinfo` de test : quels claims pour `uid`, nom, groupes ?
-5. Aligner le mapping groupes → `Admin` / `User` avec celui du `ldap.toml`.
-
----
-
-## Estimation
-
-Sur le vrai PC (même base de code) :
-
-- **½ à 1 jour** si OIDC standard + claims clairs  
-- **+½ jour** si proxy, certifs, ou claims groupes exotiques
-
-Le plus long n’est en général **pas** le code app, mais la config IdP + réseau + mapping des claims.
+- [ ] Hôte final renseigné partout (`bof…` → FQDN réel)
+- [ ] Redirect IdP = `https://<hôte>/auth/oidc/callback`
+- [ ] `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` dans `.env` serveur
+- [ ] Serveur joint `ssologin.bnpparibas.com`
+- [ ] LDAP formulaire OK
+- [ ] SSO → home `/` + rôle aligné `group_mappings`
 )
