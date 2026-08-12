@@ -2,6 +2,54 @@
 
 Ce document liste uniquement les fichiers à ajouter/modifier pour l’ajout SSO/OIDC (avec relecture LDAP via `ldap.toml`).
 
+## ⚠️ Dépannage rapide (à lire avant)
+
+### A) Flash sur `/auth/oidc/start` puis retour home / aucun log backend
+
+Cause : Vite (DEV) ne proxy souvent que `/api`.  
+`/auth/oidc/start` est alors pris par React (`path="*"` → `/`).
+
+**Fix :** dans `LoginPage` :
+
+```ts
+window.location.href = '/api/auth/oidc/start';
+```
+
+### B) Erreur **404** + message console `default-src 'none'`
+
+Ce message CSP vient souvent de **Chrome** sur une page d’erreur vide/404 : ce n’est **pas** ta CSP app.
+
+**Signification :** le serveur a répondu **404** → la route OIDC **n’existe pas** (ou mauvaise URL).
+
+Checklist :
+
+1. Le fichier `backend/server/auth/oidc.service.js` est bien créé sur **ce** PC
+2. `backend/server/auth/auth.routes.js` contient bien `GET /oidc/start` et `GET /oidc/callback`
+3. `openid-client@5` est dans `backend/package.json` + `npm install` fait dans `backend/`
+4. Backend **redémarré** après les changements
+5. Test direct (sans front) depuis le serveur app :
+
+```bash
+curl -i http://127.0.0.1:3001/auth/oidc/start
+# ou
+curl -i http://127.0.0.1:3001/api/auth/oidc/start
+```
+
+Attendu :
+- si `OIDC_ENABLED=false` / env manquante → **503** JSON (pas 404)
+- si OK → **302** `Location: https://ssologin...`
+- si **404** `Cannot GET /auth/oidc/...` → le code OIDC n’est **pas** chargé (fichier manquant / mauvais dossier / mauvais process)
+
+6. Onglet Network du navigateur : regarde l’URL exacte du 404  
+   - `/auth/oidc/start` vs `/api/auth/oidc/start`  
+   - typo possible : `odic` ≠ `oidc`
+
+En **PROD** (front + API même hôte Express `SERVE_STATIC=true`) :
+- `/auth/oidc/start` **ou** `/api/auth/oidc/start` OK (le backend retire `/api`)
+
+En **DEV Vite** :
+- préférer **`/api/auth/oidc/start`**
+
 ## 1) Backend
 
 ### `backend/package.json`
@@ -612,7 +660,12 @@ export function LoginPage() {
   };
 
   const handleSso = () => {
-    window.location.href = '/auth/oidc/start';
+    // En DEV Vite, seul /api est proxyé vers le backend (sauf si /auth est aussi proxyé).
+    // Le backend retire le préfixe /api → /auth/oidc/start.
+    // En PROD (même hôte), /api/auth/... ou /auth/... marchent tous les deux.
+    const apiBase =
+      import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? '/api' : '');
+    window.location.href = `${apiBase}/auth/oidc/start`;
   };
 
   return (

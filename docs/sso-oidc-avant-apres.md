@@ -189,8 +189,8 @@ Redirect après callback :
 ### D1 — `LoginPage` (`/login`)
 
 - Formulaire LDAP inchangé
-- Bouton SSO → `window.location.href = '/auth/oidc/start'`  
-  (ou `/api/auth/oidc/start` : le backend normalise `/api`)
+- Bouton SSO → **utiliser `/api/auth/oidc/start` en DEV** (Vite ne proxy que `/api` par défaut)  
+  En PROD même serveur : `/auth/oidc/start` ou `/api/auth/oidc/start` (le backend retire `/api`)
 
 ### D2 — Route `/login/sso/callback`
 
@@ -218,6 +218,9 @@ Redirect après callback :
 
 | Symptôme | Cause | Action |
 |----------|--------|--------|
+| Flash `/auth/oidc/start` puis `/` + 0 log | Vite sert le SPA, pas Express | Bouton → `/api/auth/oidc/start` |
+| **404** + console `default-src 'none'` | Route OIDC absente / mauvais process | Vérifier `oidc.service.js` + routes + restart ; `curl -i :3001/auth/oidc/start` |
+| `Cannot GET /auth/oidc/start` | `auth.routes.js` sans routes OIDC | Re-copier le fichier complet du doc copier-coller |
 | `redirect_uri_mismatch` | URI IdP ≠ env | Aligner avec hôte `bof…` final |
 | Timeout ssologin | Réseau serveur | Ouvrir HTTPS sortant |
 | Rôle faux | uid OIDC ≠ uid LDAP / groupes | Vérifier claim uid + lookup LDAP |
