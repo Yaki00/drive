@@ -251,6 +251,89 @@ curl -s http://127.0.0.1:5173/api/auth/oidc/env
 
 ---
 
+## Inventaire endpoints + batterie anti-404
+
+### Endpoints qui existent **déjà** (sans SSO)
+
+| Méthode | URL (API directe :3001) | Via Vite | Attendu |
+|---------|-------------------------|----------|---------|
+| GET | `/health` | `/api/health` | `{"status":"ok"}` |
+| GET | `/auth/status` | `/api/auth/status` | `{ configured, mode }` |
+| GET | `/auth/diagnose` | `/api/auth/diagnose` | rapport LDAP |
+| POST | `/auth/login` | `/api/auth/login` | JWT LDAP |
+| GET | `/auth/me` | `/api/auth/me` | profil (Bearer) |
+
+### Endpoints SSO (après copie du code de ce doc)
+
+| Méthode | URL | Attendu |
+|---------|-----|---------|
+| GET | `/auth/oidc/ping` | **200** JSON `{ ok: true, routes: [...] }` — **prouve que les routes OIDC sont chargées** |
+| GET | `/auth/oidc/env` | **200** snapshot `.env` (secrets masqués) |
+| GET | `/auth/oidc/start` | **302** IdP ou **503** env / disabled — **jamais 404** si code chargé |
+| GET | `/auth/oidc/callback` | redirect front `#token=` / `#error=` |
+
+> Sur le repo git “propre” **sans** ton copier-coller, `/auth/oidc/*` n’existe pas → **404 normal**.  
+> Si tu as “tout collé” et encore 404 : le process Node qui tourne **n’utilise pas** ces fichiers.
+
+### Batterie à coller telle quelle (autre PC)
+
+```bash
+echo "=== 1) Backend direct ==="
+curl -s -o /dev/null -w "health %{http_code}\n" http://127.0.0.1:3001/health
+curl -s -o /dev/null -w "auth/status %{http_code}\n" http://127.0.0.1:3001/auth/status
+curl -s -o /dev/null -w "auth/oidc/ping %{http_code}\n" http://127.0.0.1:3001/auth/oidc/ping
+curl -s http://127.0.0.1:3001/auth/oidc/ping
+echo
+curl -s -o /dev/null -w "auth/oidc/env %{http_code}\n" http://127.0.0.1:3001/auth/oidc/env
+curl -s -o /dev/null -w "auth/oidc/start %{http_code}\n" http://127.0.0.1:3001/auth/oidc/start
+
+echo "=== 2) Via Vite proxy ==="
+curl -s -o /dev/null -w "api/health %{http_code}\n" http://127.0.0.1:5173/api/health
+curl -s -o /dev/null -w "api/auth/status %{http_code}\n" http://127.0.0.1:5173/api/auth/status
+curl -s -o /dev/null -w "api/auth/oidc/ping %{http_code}\n" http://127.0.0.1:5173/api/auth/oidc/ping
+curl -s -o /dev/null -w "auth/oidc/ping (SANS /api) %{http_code}\n" http://127.0.0.1:5173/auth/oidc/ping
+```
+
+### Lecture des codes
+
+| Résultat | Conclusion |
+|----------|------------|
+| `auth/status` **200** + `oidc/ping` **404** | Backend OK, **routes OIDC absentes** du process (fichier non collé / mauvais dossier / pas restart) |
+| `oidc/ping` **200** + `oidc/start` **503** | SSO câblé ; corrige `.env` (`OIDC_ENABLED`, secrets) |
+| `oidc/ping` **200** + `oidc/start` **302** | Logique start OK |
+| Direct :3001 OK + Vite `/api/...` 404 | Proxy Vite cassé / Vite pas redémarré |
+| Vite `/api/...` OK + Vite `/auth/...` 404 | **Normal** sans proxy `/auth` → bouton doit être `/api/auth/...` |
+| Tout connection refused | Backend / Vite pas démarré |
+
+### Vérif logique (review)
+
+| Point | OK ? | Détail |
+|-------|------|--------|
+| Mount Express | OK | `app.use('/auth', authRouter)` → routes router = `/oidc/start` → URL finale `/auth/oidc/start` |
+| Strip `/api` | OK | `server.js` retire `/api` avant le router |
+| Vite | Attention | Sans proxy `/auth`, **seul** `/api/auth/...` marche |
+| Cookie state `path: '/'` | OK (doc à jour) | Ancien `Path=/auth/oidc/callback` cassait Vite |
+| `OIDC_ENABLED` false | **503** pas 404 | Si tu as 404, ce n’est **pas** un problème d’env |
+| `openid-client` manquant | Crash au require | Serveur ne démarre pas (sauf si tu n’as pas collé `require('./oidc.service')`) |
+| Typo `odic` | 404 | Vérifier l’URL Network |
+
+### Si `oidc/ping` = 404 alors que “les fichiers sont là”
+
+Sur le PC où tourne Node :
+
+```bash
+cd backend   # le même cwd que npm start
+pwd
+ls -la server/auth/oidc.service.js
+grep -n "oidc/ping\|oidc/start\|OidcService" server/auth/auth.routes.js
+grep -n "openid-client" package.json
+# tuer l’ancien node puis :
+npm start
+# retester ping
+```
+
+---
+
 ## Audit complet : autres fichiers (adapter ou non ?)
 
 ### À adapter (recommandé / parfois obligatoire)
@@ -270,11 +353,8 @@ curl -s http://127.0.0.1:5173/api/auth/oidc/env
    FRONTEND_URL=http://localhost:5173
    ```
 3. **Cookie `oidc_state` + Path**  
-   Dans le code copier-coller, cookie en `Path=/auth/oidc/callback`.  
-   Via Vite `/api/auth/...`, le navigateur est sur `http://localhost:5173/api/auth/...` → le cookie **ne part pas** au callback.  
-   **Adaptation sur l’autre PC dans `auth.routes.js`** :
-   - soit `path: '/'` (plus simple en DEV)
-   - soit Path + `OIDC_REDIRECT_URI` alignés sur `/api/auth/oidc/callback` (souvent refusé par l’IdP en localhost)
+   Utiliser `path: '/'` (déjà dans le code copier-coller à jour).  
+   Ne plus utiliser `Path=/auth/oidc/callback` en Vite.
 
 > En entreprise, le vrai flux IdP se teste souvent seulement en **HTTPS public** (`bof…`). Vite sert surtout à brancher bouton + page callback.
 
@@ -706,6 +786,24 @@ function createAuthRouter(authService = new AuthService()) {
   router.get('/oidc/env', (_req, res) => {
     const snap = oidcService.logEnvSnapshot('GET /auth/oidc/env');
     return res.status(200).json(snap);
+  });
+
+  /** Ping SSO : si 404 ici, les routes OIDC ne sont PAS chargées */
+  router.get('/oidc/ping', (_req, res) => {
+    const body = {
+      ok: true,
+      message: 'OIDC routes loaded',
+      time: new Date().toISOString(),
+      routes: [
+        'GET /auth/oidc/ping',
+        'GET /auth/oidc/env',
+        'GET /auth/oidc/start',
+        'GET /auth/oidc/callback',
+      ],
+      tip: 'Via Vite utilise /api/auth/oidc/ping (pas /auth/... sans proxy)',
+    };
+    console.log('[oidc] /ping', body);
+    return res.status(200).json(body);
   });
 
   router.get('/status', (_req, res) => {
