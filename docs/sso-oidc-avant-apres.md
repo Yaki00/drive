@@ -131,11 +131,19 @@ FRONTEND_URL=https://bof…
 
 **Règle :** `OIDC_REDIRECT_URI` = URI déclarée chez l’IdP, caractère pour caractère (hôte `bof…` complet inclus).
 
-Dépendance :
+Dépendance (**Node 16** du projet → **pas** la v6) :
 
 ```bash
-cd backend && npm install openid-client
+cd backend
+npm install openid-client@5
 ```
+
+| Version | Node requis | À utiliser ? |
+|---------|-------------|--------------|
+| `openid-client@6` | Node **≥ 20** | Non (incompatible) |
+| `openid-client@5` | Node **16+** (CJS OK) | **Oui** |
+
+Dans `package.json` ça doit apparaître comme `"openid-client": "^5.7.1"` (ou équivalent 5.x), pas `^6`.
 
 ---
 
@@ -247,7 +255,7 @@ Base :
 | `auth.routes.js` | +2 routes |
 | `auth.service.js` | Réutiliser lookup groupes + JWT |
 | `.env` / `.env.example` | +`OIDC_*` (valeurs vides / placeholders) |
-| `package.json` | +`openid-client` |
+| `package.json` | +`openid-client@5` (pas v6) |
 | `LoginPage.tsx` | +bouton |
 | `LoginSsoCallbackPage.tsx` | Créer |
 | Router + i18n | +route / clés |
@@ -263,4 +271,35 @@ Base :
 - [ ] Serveur joint `ssologin.bnpparibas.com`
 - [ ] LDAP formulaire OK
 - [ ] SSO → home `/` + rôle aligné `group_mappings`
+---
+## Checklist logs : quoi me renvoyer (avec `OIDC_DEBUG`)
+
+### 1) Backend : activer les logs “utiles”
+Dans `backend/.env` (ou les env vars du conteneur), mets :
+
+```env
+OIDC_DEBUG=true
+AUTH_DEBUG=true
+```
+
+Puis redémarre le backend.
+
+### 2) Lancer le login SSO
+Sur la page login, clique `Connexion SSO`.
+
+### 3) Ce que je veux voir dans les logs backend
+Copie-colle :
+
+1. Les logs autour de `[oidc] /start redirecting` (20-30 lignes environ)
+2. Les logs autour de `[oidc] /callback received` (20-30 lignes environ)
+3. La ligne (ou bloc) contenant `claims_debug` (projection “safe”)
+4. Les logs LDAP autour de :
+   - `ldap resolveUserDn ok`
+   - puis `ldap → jwt ok`
+
+### 4) En cas d’erreur
+Ajoute aussi le bloc `[oidc]` avec le `stack` (mais sans tokens bruts / sans `code`).
+
+### 5) Règle d’identification LDAP
+Une fois que tu me renvoies `claims_debug`, je te dis exactement quel champ OIDC utiliser pour retrouver le `uid` LDAP dans ta config.
 )
