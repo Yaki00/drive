@@ -90,47 +90,106 @@ Le backend charge **déjà** un dotenv minimal au démarrage (`server.js`) dans 
 ```text
 bookmarks/
 ├── backend/
-│   ├── .env              ← METS TES SECRETS ICI
+│   ├── .env              ← METS TES SECRETS ICI (un seul fichier actif)
 │   ├── .env.example      ← modèle (git), sans secrets réels
 │   └── server/server.js  ← loadDotEnv(backend/.env puis ../.env)
 └── frontend/             ← PAS de .env OIDC ici
 ```
 
-**À faire sur l’autre PC :**
+Tu n’as qu’**un** fichier lu : `backend/.env`.  
+Pour basculer local ↔ prod, **remplace le contenu** de `backend/.env` (ou garde deux fichiers hors git et copie celui qu’il faut) :
 
-```bash
-cd backend
-cp .env.example .env
-# éditer backend/.env
-```
+| Fichier (suggestion hors git) | Usage |
+|-------------------------------|--------|
+| `backend/.env.local` | modèle local → `cp backend/.env.local backend/.env` |
+| `backend/.env.prod` | modèle prod → `cp backend/.env.prod backend/.env` |
 
-Exemple **DEV Vite** dans `backend/.env` :
+Le process Node lit **uniquement** `backend/.env` (pas `.env.local` / `.env.prod` automatiquement).
+
+---
+
+### A) Modèle **LOCAL** (Vite `:5173` + API `:3001`)
+
+À coller dans `backend/.env` (ou sauver comme `.env.local` puis copier) :
 
 ```env
+# === LOCAL / DEV Vite ===
+# cp → backend/.env puis : cd backend && npm start
+# Front : cd frontend && npm run dev  → http://localhost:5173
+
+# AUTH_MODE=mock
+JWT_SECRET=dev-change-me
+
+# LDAP (si tu testes les rôles SSO→LDAP en local ; sinon mock)
+# LDAP_BIND_DN=cn=svc-bookmarks,ou=apps,dc=root
+# LDAP_BIND_PASSWORD=CHANGE_ME
+
 OIDC_ENABLED=true
 OIDC_DEBUG=true
 
 OIDC_ISSUER=https://ssologin.bnpparibas.com/affwebservices/CASSO/oidc/PAR-FTP_SSO_BOOKMARK_PRD
-OIDC_CLIENT_ID=ton_client_id
-OIDC_CLIENT_SECRET=ton_client_secret
+OIDC_CLIENT_ID=TON_CLIENT_ID
+OIDC_CLIENT_SECRET=TON_CLIENT_SECRET
 
-# En local Vite, l’IdP refuse souvent localhost — pour tester le câblage uniquement :
-# OIDC_REDIRECT_URI=http://localhost:3001/auth/oidc/callback
-# En vrai test IdP : URI HTTPS déclarée chez l’IdP
+# Redirect déclarée chez l’IdP : souvent SEULEMENT l’URI HTTPS prod.
+# En local tu peux quand même brancher le bouton ; le retour IdP échouera
+# si localhost n’est pas déclaré côté IdP.
 OIDC_REDIRECT_URI=https://bof…/auth/oidc/callback
-
 OIDC_SCOPES=openid profile
-FRONTEND_URL=http://localhost:5173
 
-JWT_SECRET=change-me
-# LDAP_BIND_DN=...
-# LDAP_BIND_PASSWORD=...
+# Où renvoyer le navigateur après callback backend (#token=…)
+FRONTEND_URL=http://localhost:5173
 ```
 
-Puis **redémarre le backend** depuis `backend/` :
+Bouton SSO en local : `window.location.href = '/api/auth/oidc/start'`
+
+---
+
+### B) Modèle **PROD** (même hôte HTTPS, Express `SERVE_STATIC` / Podman)
+
+À coller dans `backend/.env` sur le serveur (ou sauver comme `.env.prod`) :
+
+```env
+# === PROD ===
+# Remplace bof… par le FQDN réel (ex. bofinlinks.xxx)
+# Redirect URI IdP = OIDC_REDIRECT_URI caractère pour caractère
+
+# AUTH_MODE=   (vide = LDAP)
+JWT_SECRET=METS_UN_SECRET_LONG_ALEATOIRE
+# AUTH_REQUIRED=true
+
+LDAP_BIND_DN=cn=svc-bookmarks,ou=apps,dc=root
+LDAP_BIND_PASSWORD=MOT_DE_PASSE_LDAP
+
+OIDC_ENABLED=true
+OIDC_DEBUG=false
+
+OIDC_ISSUER=https://ssologin.bnpparibas.com/affwebservices/CASSO/oidc/PAR-FTP_SSO_BOOKMARK_PRD
+OIDC_CLIENT_ID=TON_CLIENT_ID
+OIDC_CLIENT_SECRET=TON_CLIENT_SECRET
+
+OIDC_REDIRECT_URI=https://bof…/auth/oidc/callback
+OIDC_SCOPES=openid profile
+
+FRONTEND_URL=https://bof…
+
+# Si front servi par Node :
+SERVE_STATIC=true
+PORT=3001
+```
+
+Bouton SSO en prod (même origine) : `/auth/oidc/start` **ou** `/api/auth/oidc/start` (les deux OK si Express retire `/api`).
+
+**Podman** : ces mêmes variables doivent être passées au conteneur (`env.local` / `-e`), pas seulement un fichier sur l’hôte oublié.
+
+---
+
+**À faire sur l’autre PC :**
 
 ```bash
 cd backend
+# choisir un modèle :
+# nano .env          ← coller le bloc LOCAL ou PROD
 npm start
 ```
 
@@ -310,22 +369,20 @@ LDAP_BIND_PASSWORD=CHANGE_ME
 # LDAP_ROOT_CA_CERT=./certs/root.cer
 # LDAP_TOML=./ldap.toml
 
-# --- OIDC SSO (SSologin) ---
-# Fichier réel à éditer : backend/.env  (copier depuis ce fichier)
-OIDC_ENABLED=true
-OIDC_DEBUG=true
-
+# --- OIDC SSO — voir docs/sso-oidc-copier-coller.md
+# Coller le bloc LOCAL ou PROD dans backend/.env (fichier réellement lu).
+#
+# LOCAL (Vite) : FRONTEND_URL=http://localhost:5173 + OIDC_DEBUG=true
+# PROD         : FRONTEND_URL=https://bof… + OIDC_REDIRECT_URI=https://bof…/auth/oidc/callback
+#
+OIDC_ENABLED=false
+OIDC_DEBUG=false
 OIDC_ISSUER=https://ssologin.bnpparibas.com/affwebservices/CASSO/oidc/PAR-FTP_SSO_BOOKMARK_PRD
 OIDC_CLIENT_ID=CHANGE_ME
 OIDC_CLIENT_SECRET=CHANGE_ME
-
-# Redirect déclarée chez l’IdP (souvent HTTPS prod uniquement)
 OIDC_REDIRECT_URI=https://bof…/auth/oidc/callback
 OIDC_SCOPES=openid profile
-
-# DEV Vite → http://localhost:5173
-# PROD même hôte → https://bof…
-FRONTEND_URL=http://localhost:5173
+FRONTEND_URL=https://bof…
 ```
 
 ---
