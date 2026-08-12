@@ -17,38 +17,66 @@ window.location.href = '/api/auth/oidc/start';
 
 ### B) Erreur **404** + message console `default-src 'none'`
 
-Ce message CSP vient souvent de **Chrome** sur une page d’erreur vide/404 : ce n’est **pas** ta CSP app.
+Ce message CSP vient souvent de **Chrome** (ou d’une page d’erreur nginx) sur une **404** : ce n’est **pas** ta CSP app.
 
-**Signification :** le serveur a répondu **404** → la route OIDC **n’existe pas** (ou mauvaise URL).
+**Signification :** quelque chose a répondu **404**. Même si “tous les fichiers sont là”, le navigateur n’atteint parfois **pas** Express (proxy / static).
 
-Checklist :
+#### Étape 1 — URL exacte du 404 (Network)
 
-1. Le fichier `backend/server/auth/oidc.service.js` est bien créé sur **ce** PC
-2. `backend/server/auth/auth.routes.js` contient bien `GET /oidc/start` et `GET /oidc/callback`
-3. `openid-client@5` est dans `backend/package.json` + `npm install` fait dans `backend/`
-4. Backend **redémarré** après les changements
-5. Test direct (sans front) depuis le serveur app :
+DevTools → Network → requête rouge :
+- URL complète ?
+- Response : `Cannot GET /...` (Express) **ou** HTML nginx / page blanche ?
+
+| Response | Interprétation |
+|----------|----------------|
+| `Cannot GET /auth/oidc/start` | Express OK, **route absente** dans le process actuel |
+| HTML nginx / vide / CSP `default-src 'none'` | **Proxy/static** a répondu, **pas** Node |
+| JSON `{ "message": "Not found" }` | Hit API Express, pas le router `/auth` |
+
+#### Étape 2 — curl **sur le serveur** (bypass front)
 
 ```bash
 curl -i http://127.0.0.1:3001/auth/oidc/start
-# ou
 curl -i http://127.0.0.1:3001/api/auth/oidc/start
 ```
 
-Attendu :
-- si `OIDC_ENABLED=false` / env manquante → **503** JSON (pas 404)
-- si OK → **302** `Location: https://ssologin...`
-- si **404** `Cannot GET /auth/oidc/...` → le code OIDC n’est **pas** chargé (fichier manquant / mauvais dossier / mauvais process)
+| curl | Action |
+|------|--------|
+| **302** vers `ssologin...` | Backend OK → bug **front/proxy** |
+| **503** JSON | Code chargé → `OIDC_ENABLED=true` + secrets + restart |
+| **404** `Cannot GET` | Process Node sans routes (mauvais dossier / ancien process) |
+| Connection refused | Backend pas démarré / mauvais port |
 
-6. Onglet Network du navigateur : regarde l’URL exacte du 404  
-   - `/auth/oidc/start` vs `/api/auth/oidc/start`  
-   - typo possible : `odic` ≠ `oidc`
+#### Étape 3 — curl = 302 mais navigateur = 404 (cas le plus fréquent)
 
-En **PROD** (front + API même hôte Express `SERVE_STATIC=true`) :
-- `/auth/oidc/start` **ou** `/api/auth/oidc/start` OK (le backend retire `/api`)
+Souvent nginx sert le front pour `/*` et ne proxy que `/api/*` vers Node.  
+Bouton `/auth/oidc/start` → **404 nginx** (+ CSP).
 
-En **DEV Vite** :
-- préférer **`/api/auth/oidc/start`**
+**Fix bouton :**
+
+```ts
+window.location.href = '/api/auth/oidc/start';
+```
+
+#### Étape 4 — curl local = 404 alors que les fichiers “sont là”
+
+Dans le dossier réellement lancé par `npm start` :
+
+```bash
+cd backend
+ls -la server/auth/oidc.service.js
+grep -n "oidc/start" server/auth/auth.routes.js
+grep -n "openid-client" package.json
+# puis restart propre du process Node
+```
+
+#### Étape 5 — renvoie-moi
+
+1. URL exacte du 404  
+2. 20 premières lignes de la Response  
+3. Sortie `curl -i http://127.0.0.1:3001/auth/oidc/start`  
+4. Mode de lancement : Vite / SERVE_STATIC / nginx / Podman  
+5. `grep -n "oidc/start" backend/server/auth/auth.routes.js`
 
 ## 1) Backend
 
