@@ -80,6 +80,118 @@ grep -n "openid-client" package.json
 
 ---
 
+## Quel fichier `.env` utiliser ? (important)
+
+Le backend charge **déjà** un dotenv minimal au démarrage (`server.js`) dans cet ordre :
+
+1. **`backend/.env`** ← **celui à utiliser** (recommandé)
+2. `.env` à la racine du monorepo (fallback)
+
+```text
+bookmarks/
+├── backend/
+│   ├── .env              ← METS TES SECRETS ICI
+│   ├── .env.example      ← modèle (git), sans secrets réels
+│   └── server/server.js  ← loadDotEnv(backend/.env puis ../.env)
+└── frontend/             ← PAS de .env OIDC ici
+```
+
+**À faire sur l’autre PC :**
+
+```bash
+cd backend
+cp .env.example .env
+# éditer backend/.env
+```
+
+Exemple **DEV Vite** dans `backend/.env` :
+
+```env
+OIDC_ENABLED=true
+OIDC_DEBUG=true
+
+OIDC_ISSUER=https://ssologin.bnpparibas.com/affwebservices/CASSO/oidc/PAR-FTP_SSO_BOOKMARK_PRD
+OIDC_CLIENT_ID=ton_client_id
+OIDC_CLIENT_SECRET=ton_client_secret
+
+# En local Vite, l’IdP refuse souvent localhost — pour tester le câblage uniquement :
+# OIDC_REDIRECT_URI=http://localhost:3001/auth/oidc/callback
+# En vrai test IdP : URI HTTPS déclarée chez l’IdP
+OIDC_REDIRECT_URI=https://bof…/auth/oidc/callback
+
+OIDC_SCOPES=openid profile
+FRONTEND_URL=http://localhost:5173
+
+JWT_SECRET=change-me
+# LDAP_BIND_DN=...
+# LDAP_BIND_PASSWORD=...
+```
+
+Puis **redémarre le backend** depuis `backend/` :
+
+```bash
+cd backend
+npm start
+```
+
+Au boot tu dois voir des logs `[oidc-env]` (voir code ci-dessous).  
+Si tu ne vois **aucun** `[oidc-env]` → tu n’as pas mis à jour `oidc.service.js` / `auth.routes.js`, ou tu ne lances pas le bon process.
+
+**Ne mets pas** les secrets OIDC dans :
+- `frontend/.env`
+- `deploy/podman/env.example` seul (prod Podman : `env.local` / `-e`, en plus)
+
+### Patch optionnel `backend/server/server.js` (log boot OIDC)
+
+Juste après le `console.log` dotenv existant, ajoute :
+
+```javascript
+console.log(
+  `[${new Date().toISOString()}] [server] oidc env: ENABLED=${process.env.OIDC_ENABLED || '(empty)'} ` +
+    `ISSUER=${process.env.OIDC_ISSUER ? 'set' : 'missing'} ` +
+    `CLIENT_ID=${process.env.OIDC_CLIENT_ID ? 'set' : 'missing'} ` +
+    `SECRET=${process.env.OIDC_CLIENT_SECRET ? 'set' : 'missing'} ` +
+    `REDIRECT=${process.env.OIDC_REDIRECT_URI ? 'set' : 'missing'} ` +
+    `FRONTEND_URL=${process.env.FRONTEND_URL || '(empty)'}`,
+);
+```
+
+Si au démarrage tu vois `ENABLED=(empty)` alors que tu as rempli `backend/.env` :
+- mauvais fichier / mauvais dossier
+- process lancé sans restart
+- variables déjà présentes dans l’environnement shell qui écrasent (le loader ne overwrite pas)
+
+---
+
+## Logs pour localiser le 404 / le .env
+
+Après avoir collé le code mis à jour ci-dessous, au démarrage cherche :
+
+```text
+[oidc-env] snapshot
+[auth-http] GET /oidc/start
+[oidc] /start hit
+```
+
+| Ce que tu vois | Diagnostic |
+|----------------|------------|
+| Rien du tout dans la console backend | La requête **n’atteint pas** Express (Vite : utilise `/api/auth/oidc/start`) |
+| `[auth-http] GET /…` mais pas `/oidc/start` | Mauvaise URL |
+| `[oidc-env] … OIDC_ENABLED=false` | `.env` lu mais SSO off |
+| `[oidc-env] missing=[OIDC_CLIENT_ID, …]` | `.env` incomplet / mauvais fichier |
+| `[oidc] /start hit` puis 302 | Câblage OK |
+| `Cannot GET` 404 | Routes OIDC absentes du process lancé |
+
+Test utile (avec le nouveau endpoint debug) :
+
+```bash
+curl -s http://127.0.0.1:3001/auth/oidc/env | jq
+# ou via Vite :
+curl -s http://127.0.0.1:5173/api/auth/oidc/env
+```
+
+---
+
 ## Audit complet : autres fichiers (adapter ou non ?)
 
 ### À adapter (recommandé / parfois obligatoire)
@@ -199,18 +311,21 @@ LDAP_BIND_PASSWORD=CHANGE_ME
 # LDAP_TOML=./ldap.toml
 
 # --- OIDC SSO (SSologin) ---
-# (met ces valeurs dans backend/.env, pas commit)
-OIDC_ENABLED=false
-OIDC_DEBUG=false
+# Fichier réel à éditer : backend/.env  (copier depuis ce fichier)
+OIDC_ENABLED=true
+OIDC_DEBUG=true
 
 OIDC_ISSUER=https://ssologin.bnpparibas.com/affwebservices/CASSO/oidc/PAR-FTP_SSO_BOOKMARK_PRD
 OIDC_CLIENT_ID=CHANGE_ME
 OIDC_CLIENT_SECRET=CHANGE_ME
+
+# Redirect déclarée chez l’IdP (souvent HTTPS prod uniquement)
 OIDC_REDIRECT_URI=https://bof…/auth/oidc/callback
 OIDC_SCOPES=openid profile
 
-# Pour rediriger après callback (URL de ton frontend SPA)
-FRONTEND_URL=https://bof…
+# DEV Vite → http://localhost:5173
+# PROD même hôte → https://bof…
+FRONTEND_URL=http://localhost:5173
 ```
 
 ---
@@ -229,12 +344,16 @@ function mask(value, head = 6, tail = 2) {
   return `${s.slice(0, head)}…${s.slice(-tail)} (len=${s.length})`;
 }
 
+function present(key) {
+  const v = process.env[key];
+  return v != null && String(v).trim() !== '';
+}
+
 function safeProjection(claims) {
-  // Projection “safe” : évite de logguer le token entier.
   return {
     iss: claims && claims.iss,
     sub: claims && claims.sub,
-    preferred_username: claims && (claims.preferred_username || claims['preferred_username']),
+    preferred_username: claims && (claims.preferred_username || claims.preferredUserName),
     name: claims && claims.name,
     email: claims && claims.email,
     uid: claims && claims.uid,
@@ -245,6 +364,8 @@ function safeProjection(claims) {
 class OidcService {
   constructor() {
     this.clientPromise = null;
+    // Toujours loguer un snapshot masqué au boot (pour debug .env / 404).
+    this.logEnvSnapshot('boot');
   }
 
   get enabled() {
@@ -252,7 +373,11 @@ class OidcService {
   }
 
   get debug() {
-    return String(process.env.OIDC_DEBUG || '').toLowerCase() === 'true';
+    // true par défaut si OIDC_DEBUG non défini → plus simple pour le 1er setup
+    if (process.env.OIDC_DEBUG == null || String(process.env.OIDC_DEBUG).trim() === '') {
+      return true;
+    }
+    return String(process.env.OIDC_DEBUG).toLowerCase() === 'true';
   }
 
   log(...args) {
@@ -260,9 +385,39 @@ class OidcService {
     console.log('[oidc]', ...args);
   }
 
+  /** Snapshot safe des env OIDC (jamais le secret en clair). */
+  getEnvSnapshot() {
+    const required = ['OIDC_ISSUER', 'OIDC_CLIENT_ID', 'OIDC_CLIENT_SECRET', 'OIDC_REDIRECT_URI'];
+    const missing = required.filter((k) => !present(k));
+    return {
+      cwd: process.cwd(),
+      OIDC_ENABLED: process.env.OIDC_ENABLED || '(empty)',
+      OIDC_DEBUG: process.env.OIDC_DEBUG || '(empty→default true)',
+      enabled: this.enabled,
+      OIDC_ISSUER: process.env.OIDC_ISSUER || '(missing)',
+      OIDC_REDIRECT_URI: process.env.OIDC_REDIRECT_URI || '(missing)',
+      OIDC_SCOPES: process.env.OIDC_SCOPES || '(default: openid profile)',
+      FRONTEND_URL: process.env.FRONTEND_URL || '(missing)',
+      OIDC_CLIENT_ID: present('OIDC_CLIENT_ID')
+        ? mask(process.env.OIDC_CLIENT_ID, 4, 2)
+        : '(missing)',
+      OIDC_CLIENT_SECRET: present('OIDC_CLIENT_SECRET')
+        ? `***len=${String(process.env.OIDC_CLIENT_SECRET).length}`
+        : '(missing)',
+      missing,
+      hint_env_file: 'backend/.env (chargé par server.js ; restart Node après édition)',
+    };
+  }
+
+  logEnvSnapshot(reason) {
+    const snap = this.getEnvSnapshot();
+    console.log(`[oidc-env] snapshot (${reason})`, snap);
+    return snap;
+  }
+
   requiredEnv() {
     const required = ['OIDC_ISSUER', 'OIDC_CLIENT_ID', 'OIDC_CLIENT_SECRET', 'OIDC_REDIRECT_URI'];
-    return required.filter((k) => !process.env[k] || !String(process.env[k]).trim());
+    return required.filter((k) => !present(k));
   }
 
   async getClient() {
@@ -271,6 +426,7 @@ class OidcService {
     this.clientPromise = (async () => {
       const missing = this.requiredEnv();
       if (missing.length > 0) {
+        this.logEnvSnapshot('missing-env-before-discover');
         const err = new Error(`OIDC env manquantes: ${missing.join(', ')}`);
         err.status = 503;
         throw err;
@@ -286,16 +442,17 @@ class OidcService {
         userinfo_endpoint: issuer.userinfo_endpoint,
       });
 
-      // PKCE volontairement NON (ta consigne "pkce false")
-      const client = new issuer.Client({
+      // PKCE volontairement NON
+      return new issuer.Client({
         client_id: process.env.OIDC_CLIENT_ID,
         client_secret: process.env.OIDC_CLIENT_SECRET,
         redirect_uris: [process.env.OIDC_REDIRECT_URI],
         response_types: ['code'],
       });
-
-      return client;
-    })();
+    })().catch((err) => {
+      this.clientPromise = null;
+      throw err;
+    });
 
     return this.clientPromise;
   }
@@ -339,7 +496,7 @@ class OidcService {
       redirectUri,
     });
 
-    const tokenSet = await client.callback(redirectUri, { code, state });
+    const tokenSet = await client.callback(redirectUri, { code, state }, { state });
     const claims = tokenSet.claims();
 
     this.log('callback exchange ok', {
@@ -352,22 +509,18 @@ class OidcService {
   }
 
   extractLdapUidFromClaims(claims) {
-    // Heuristique: preferred_username puis sub.
     const preferred =
       claims &&
-      (claims.preferred_username || claims['preferred_username'] || claims.preferredUserName);
+      (claims.preferred_username || claims.preferredUserName || claims['preferred_username']);
     if (preferred && String(preferred).trim()) {
       return { uid: String(preferred).trim(), used: 'preferred_username' };
     }
-
     if (claims && claims.sub && String(claims.sub).trim()) {
       return { uid: String(claims.sub).trim(), used: 'sub' };
     }
-
     if (claims && claims.uid && String(claims.uid).trim()) {
       return { uid: String(claims.uid).trim(), used: 'uid' };
     }
-
     if (claims && claims.user_id && String(claims.user_id).trim()) {
       return { uid: String(claims.user_id).trim(), used: 'user_id' };
     }
@@ -391,6 +544,10 @@ class OidcService {
     let client = null;
     try {
       client = authService.createLdapClient();
+
+      if (srv.bind_dn && !authService.isPlaceholderBind(srv)) {
+        await authService.bind(client, srv.bind_dn, srv.bind_password || '');
+      }
 
       const resolved = await authService.resolveUserDn(client, uid);
       this.log('ldap resolveUserDn ok', {
@@ -479,12 +636,19 @@ function setCookie(
 function createAuthRouter(authService = new AuthService()) {
   const router = express.Router();
   const oidcService = new OidcService();
+  // Snapshot déjà loggé dans OidcService constructor → [oidc-env] snapshot (boot)
 
   router.use((req, _res, next) => {
     console.log(
       `[${new Date().toISOString()}] [auth-http] ${req.method} ${req.originalUrl || req.url}`,
     );
     next();
+  });
+
+  /** Debug .env OIDC (sans secret en clair) — utile si 404 / 503 */
+  router.get('/oidc/env', (_req, res) => {
+    const snap = oidcService.logEnvSnapshot('GET /auth/oidc/env');
+    return res.status(200).json(snap);
   });
 
   router.get('/status', (_req, res) => {
@@ -575,9 +739,19 @@ function createAuthRouter(authService = new AuthService()) {
   // ----------------------------
 
   router.get('/oidc/start', async (req, res) => {
+    console.log('[oidc] /start hit', {
+      url: req.originalUrl || req.url,
+      host: req.headers.host,
+      'x-forwarded-proto': req.headers['x-forwarded-proto'] || null,
+    });
+    oidcService.logEnvSnapshot('GET /auth/oidc/start');
     try {
       if (!oidcService.enabled) {
-        return res.status(503).json({ message: 'OIDC not enabled (OIDC_ENABLED=true)' });
+        console.warn('[oidc] /start blocked: OIDC_ENABLED is not true');
+        return res.status(503).json({
+          message: 'OIDC not enabled (OIDC_ENABLED=true)',
+          env: oidcService.getEnvSnapshot(),
+        });
       }
 
       const secure =
@@ -585,7 +759,6 @@ function createAuthRouter(authService = new AuthService()) {
 
       const state = oidcService.generateState();
       // Path '/' : compatible Vite (/api/auth/...) et PROD (/auth/...).
-      // Évite state_mismatch si le cookie est scoped sur /auth alors que le navigateur est sur /api/auth.
       setCookie(res, 'oidc_state', state, {
         httpOnly: true,
         secure,
@@ -601,6 +774,7 @@ function createAuthRouter(authService = new AuthService()) {
       console.error('[oidc] /start failed', err && err.stack ? err.stack : err);
       return res.status(err.status || 500).json({
         message: err.message || 'OIDC start failed',
+        env: oidcService.getEnvSnapshot(),
       });
     }
   });
