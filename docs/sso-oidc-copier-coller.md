@@ -78,6 +78,71 @@ grep -n "openid-client" package.json
 4. Mode de lancement : Vite / SERVE_STATIC / nginx / Podman  
 5. `grep -n "oidc/start" backend/server/auth/auth.routes.js`
 
+---
+
+## Audit complet : autres fichiers (adapter ou non ?)
+
+### À adapter (recommandé / parfois obligatoire)
+
+| Fichier | Obligatoire ? | Pourquoi | Que faire |
+|---------|---------------|----------|-----------|
+| `frontend/vite.config.ts` | **Oui en DEV Vite** | Vite ne proxy que `/api` → `/auth/oidc/*` ne touche pas Express (404 / flash) | Soit bouton = `/api/auth/oidc/start`, soit ajouter un proxy `/auth` → `localhost:3001` |
+| `backend/.env` (serveur, **pas git**) | **Oui** | Active OIDC + secrets + URLs | `OIDC_ENABLED=true`, id/secret, `OIDC_REDIRECT_URI`, `FRONTEND_URL`, `OIDC_DEBUG=true` le temps du debug |
+| `deploy/podman/env.example` / `env.local` | **Oui en prod Podman** | Les vars OIDC doivent entrer dans le conteneur | Passer `OIDC_*`, `FRONTEND_URL`, `JWT_SECRET`, LDAP… au run (`-e` / env file) |
+| `frontend/src/components/Navbar.tsx` | Optionnel UX | `isLoginPage = path === '/login'` → `/login/sso/callback` affiche encore « Se connecter » | `pathname.startsWith('/login')` |
+
+#### Vite : 3 points critiques
+
+1. **Bouton SSO** → `/api/auth/oidc/start` (pas `/auth/...` en Vite)
+2. **`FRONTEND_URL`** dans `.env` backend (local Vite) :
+   ```env
+   FRONTEND_URL=http://localhost:5173
+   ```
+3. **Cookie `oidc_state` + Path**  
+   Dans le code copier-coller, cookie en `Path=/auth/oidc/callback`.  
+   Via Vite `/api/auth/...`, le navigateur est sur `http://localhost:5173/api/auth/...` → le cookie **ne part pas** au callback.  
+   **Adaptation sur l’autre PC dans `auth.routes.js`** :
+   - soit `path: '/'` (plus simple en DEV)
+   - soit Path + `OIDC_REDIRECT_URI` alignés sur `/api/auth/oidc/callback` (souvent refusé par l’IdP en localhost)
+
+> En entreprise, le vrai flux IdP se teste souvent seulement en **HTTPS public** (`bof…`). Vite sert surtout à brancher bouton + page callback.
+
+### Pas besoin d’adapter
+
+| Fichier | Raison |
+|---------|--------|
+| `backend/server/server.js` | Monte déjà `/auth`, retire déjà `/api` |
+| `backend/server/auth/auth.service.js` | LDAP + rôles + JWT déjà OK |
+| `backend/ldap.toml` (+ example) | Source des rôles inchangée |
+| `frontend/src/api/client.ts` | Bearer + `me()` déjà OK |
+| `frontend/src/utils/sessionUser.ts` | `setAuthToken` / `setSessionUser` suffisent |
+| Pages métier (`HomePage`, etc.) | Auth via token localStorage |
+| `backend/server/router.js` / `store.js` | Hors auth |
+| `backend/test/auth.test.js` | Pas bloquant pour activer SSO |
+
+### Ops après changements
+
+| Action | Quand |
+|--------|--------|
+| `cd backend && npm install` | Après `openid-client@5` |
+| Restart Node | Après `.env` / routes |
+| Restart Vite | Après `vite.config.ts` |
+| `refresh-vendor.sh` + rebuild Podman | Si image prod |
+| Redirect URI IdP = `OIDC_REDIRECT_URI` | Exact match |
+
+### Checklist Vite « je clique SSO »
+
+- [ ] Backend `:3001` up
+- [ ] Vite `:5173` up
+- [ ] Bouton → `/api/auth/oidc/start`
+- [ ] `curl -i http://127.0.0.1:3001/auth/oidc/start` ≠ 404
+- [ ] `curl -i http://127.0.0.1:5173/api/auth/oidc/start` ≠ 404 HTML
+- [ ] `OIDC_ENABLED=true` + secrets
+- [ ] Cookie Path compatible callback (souvent `path: '/'` en DEV)
+- [ ] `FRONTEND_URL=http://localhost:5173`
+
+---
+
 ## 1) Backend
 
 ### `backend/package.json`
@@ -519,11 +584,13 @@ function createAuthRouter(authService = new AuthService()) {
         Boolean(req.secure) || String(req.headers['x-forwarded-proto'] || '').toLowerCase() === 'https';
 
       const state = oidcService.generateState();
+      // Path '/' : compatible Vite (/api/auth/...) et PROD (/auth/...).
+      // Évite state_mismatch si le cookie est scoped sur /auth alors que le navigateur est sur /api/auth.
       setCookie(res, 'oidc_state', state, {
         httpOnly: true,
         secure,
         sameSite: 'Lax',
-        path: '/auth/oidc/callback',
+        path: '/',
       });
 
       const authorizationUrl = await oidcService.buildAuthorizationUrl({ state });
@@ -889,6 +956,56 @@ export function LoginSsoCallbackPage() {
     </Box>
   );
 }
+```
+
+---
+
+### `frontend/vite.config.ts` (à adapter en DEV Vite)
+
+**Avant**
+
+```ts
+proxy: {
+  '/api': {
+    target: 'http://localhost:3001',
+    changeOrigin: true,
+    rewrite: (path) => path.replace(/^\/api/, ''),
+  },
+},
+```
+
+**Après** (recommandé : proxy `/auth` en plus ; le bouton peut rester en `/api/auth/...`)
+
+```ts
+proxy: {
+  '/api': {
+    target: 'http://localhost:3001',
+    changeOrigin: true,
+    rewrite: (path) => path.replace(/^\/api/, ''),
+  },
+  '/auth': {
+    target: 'http://localhost:3001',
+    changeOrigin: true,
+  },
+},
+```
+
+Puis **redémarrer Vite**.
+
+---
+
+### `frontend/src/components/Navbar.tsx` (optionnel)
+
+**Avant**
+
+```ts
+const isLoginPage = location.pathname === '/login';
+```
+
+**Après**
+
+```ts
+const isLoginPage = location.pathname.startsWith('/login');
 ```
 
 ---
