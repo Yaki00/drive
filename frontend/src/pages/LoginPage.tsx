@@ -22,6 +22,7 @@ export function LoginPage() {
   const theme = useTheme();
   const greenPale = getGreenPale(theme.palette.mode);
   const { t } = useLocale();
+
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -46,10 +47,18 @@ export function LoginPage() {
     }
   };
 
+  const handleSso = () => {
+    // En DEV Vite, seul /api est proxyé vers le backend (sauf si /auth est aussi proxyé).
+    // Le backend retire le préfixe /api → /auth/oidc/start.
+    // En PROD (même hôte), /api/auth/... ou /auth/... marchent tous les deux.
+    const apiBase =
+      import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? '/api' : '');
+    window.location.href = `${apiBase}/auth/oidc/start`;
+  };
+
   return (
     <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'background.default' }}>
       <Navbar />
-
       <Box
         sx={{
           flexGrow: 1,
@@ -133,6 +142,18 @@ export function LoginPage() {
             disabled={loading || !username.trim() || !password}
           >
             {t('login.submit')}
+          </Button>
+
+          <Button
+            type="button"
+            variant="outlined"
+            fullWidth
+            size="large"
+            sx={{ mt: 2 }}
+            onClick={handleSso}
+            disabled={loading}
+          >
+            {t('login.sso')}
           </Button>
         </Paper>
       </Box>

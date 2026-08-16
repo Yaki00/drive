@@ -16,6 +16,7 @@
   "dependencies": {
     "express": "4.21.2",
     "jsonwebtoken": "9.0.2",
-    "ldapjs": "3.0.7"
+    "ldapjs": "3.0.7",
+    "openid-client": "^5.7.1"
   }
 }

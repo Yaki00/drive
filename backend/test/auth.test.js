@@ -12,6 +12,7 @@ const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'drive-auth-'));
 async function main() {
   testParseAndRoles();
   testMockLoginService();
+  testEnvOverridesToml();
 
   const child = spawn(process.execPath, [path.join(__dirname, '..', 'server', 'server.js')], {
     env: {
@@ -104,6 +105,55 @@ async function testMockLoginService() {
   await assert.rejects(() => service.login('admin', 'wrong'), /Authentication failed/);
 }
 
+function testEnvOverridesToml() {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'drive-ldap-'));
+  const tomlPath = path.join(tmpDir, 'ldap.toml');
+  fs.writeFileSync(
+    tomlPath,
+    `
+[[servers]]
+host = "eldap.example.com"
+port = 636
+use_ssl = true
+bind_dn = "bind_dn"
+bind_password = "bind_password"
+search_filter = "(uid=%s)"
+search_base_dns = ["ou=Users,dc=root"]
+`,
+    'utf8',
+  );
+
+  const prev = {
+    AUTH_MODE: process.env.AUTH_MODE,
+    LDAP_BIND_DN: process.env.LDAP_BIND_DN,
+    LDAP_BIND_PASSWORD: process.env.LDAP_BIND_PASSWORD,
+    LDAP_HOST: process.env.LDAP_HOST,
+    LDAP_SEARCH_BASE: process.env.LDAP_SEARCH_BASE,
+  };
+
+  try {
+    delete process.env.AUTH_MODE;
+    process.env.LDAP_BIND_DN = 'cn=svc-real,ou=apps,dc=root';
+    process.env.LDAP_BIND_PASSWORD = 'real-secret';
+    process.env.LDAP_HOST = 'ldap-from-env.example.com';
+    process.env.LDAP_SEARCH_BASE = 'ou=Internal,ou=Users,dc=root';
+
+    const service = new AuthService({ mode: '', tomlPath });
+    const srv = service.activeServer;
+    assert.strictEqual(srv.bind_dn, 'cn=svc-real,ou=apps,dc=root');
+    assert.strictEqual(srv.bind_password, 'real-secret');
+    assert.strictEqual(srv.host, 'ldap-from-env.example.com');
+    assert.deepStrictEqual(srv.search_base_dns, ['ou=Internal,ou=Users,dc=root']);
+    assert.strictEqual(service.isPlaceholderBind(srv), false);
+  } finally {
+    for (const [key, value] of Object.entries(prev)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
 async function testAuthRoutes() {
   const status = await request('GET', '/auth/status');
   assert.strictEqual(status.status, 200);
@@ -130,6 +180,17 @@ async function testAuthRoutes() {
   });
   assert.strictEqual(viaApiPrefix.status, 200);
   assert.ok(viaApiPrefix.body.token);
+
+  const oidcPing = await request('GET', '/auth/oidc/ping');
+  assert.strictEqual(oidcPing.status, 200);
+  assert.strictEqual(oidcPing.body.ok, true);
+
+  const oidcPingApi = await request('GET', '/api/auth/oidc/ping');
+  assert.strictEqual(oidcPingApi.status, 200);
+
+  // OIDC disabled by default → 503 (routes loaded), never 404
+  const oidcStart = await request('GET', '/auth/oidc/start');
+  assert.strictEqual(oidcStart.status, 503);
 }
 
 function request(method, pathname, body, headers = {}) {

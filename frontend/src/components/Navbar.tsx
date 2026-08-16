@@ -37,7 +37,7 @@ export function Navbar({
   const location = useLocation();
   const { mode, toggleMode } = useThemeMode();
   const { t, toggleLocale } = useLocale();
-  const isLoginPage = location.pathname === '/login';
+  const isLoginPage = location.pathname.startsWith('/login');
   const isHome = location.pathname === '/';
   const isActivity = location.pathname === '/activity';
   const isKpi = location.pathname === '/kpi';
